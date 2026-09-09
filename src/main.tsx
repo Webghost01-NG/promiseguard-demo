@@ -221,7 +221,30 @@ function Auth() {
       setPassword(''); setConfirmPassword(''); setState('ready');
     } catch(e) { setError((e as Error).message); } finally { setBusy(false); }
   }
-  const title=authMode === 'signup' ? 'Create your workspace' : 'Welcome back';
-  return <main className="signin"><a className="brand" href="/">PromiseGuard<span className="orange">.</span></a><section><span className="eyebrow">YOUR COMMITMENTS. YOUR WORKSPACE.</span><h1>{title}<span className="orange">.</span></h1><p>Use Google, GitHub, or Slack, or create a PromiseGuard account directly.</p>{state === 'loading' ? <p role="status">Opening workspace…</p> : <><div className="social-auth" aria-label="Social sign in">{(['google','github','slack'] as const).map(provider => providers[provider] ? <a className="social-button" href={`/api/auth/${provider}/start`} key={provider}><Provider name={provider[0].toUpperCase()+provider.slice(1)}/><span>Continue with {provider[0].toUpperCase()+provider.slice(1)}</span></a> : <span className="social-button unavailable" aria-disabled="true" key={provider}><Provider name={provider[0].toUpperCase()+provider.slice(1)}/><span>{provider[0].toUpperCase()+provider.slice(1)} setup pending</span></span>)}</div><div className="auth-divider"><span>Or use a password</span></div><form onSubmit={submit}><label htmlFor="username">Username</label><input id="username" value={name} onChange={e => setName(e.target.value)} autoComplete="username" minLength={3} maxLength={100} required/><label htmlFor="password">Password</label><input id="password" type="password" value={password} onChange={e => setPassword(e.target.value)} autoComplete={authMode === 'signup' ? 'new-password' : 'current-password'} minLength={12} maxLength={256} required/>{authMode === 'signup' && <><label htmlFor="confirm-password">Confirm password</label><input id="confirm-password" type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} autoComplete="new-password" minLength={12} maxLength={256} required/></>}{error && <p className="alert error" role="alert">{error}</p>}<button className="primary full" disabled={busy}>{busy ? 'Please wait…' : authMode === 'signup' ? 'Create workspace ↗' : 'Sign in ↗'}</button><button className="auth-switch" type="button" onClick={() => {setAuthMode(authMode === 'signup' ? 'login' : 'signup');setError('');setPassword('');setConfirmPassword('');}}>{authMode === 'signup' ? 'Already have an account? Sign in' : 'New here? Create an account'}</button></form><p className="auth-legal">By continuing, you agree to the <a href="/terms.html">Terms</a> and acknowledge the <a href="/privacy.html">Privacy Policy</a>.</p></>}</section></main>;
+  const signup=authMode === 'signup';
+  const title=signup ? 'Create your account' : 'Welcome back';
+  const switchMode=() => {setAuthMode(signup ? 'login' : 'signup');setError('');setPassword('');setConfirmPassword('');};
+  return <main className="signin">
+    <section className="auth-card" aria-labelledby="auth-title">
+      <div className="auth-card-content">
+        <a className="brand auth-brand" href="/" aria-label="PromiseGuard home"><span className="brand-mark" aria-hidden="true">↗</span>PromiseGuard<span className="brand-period">.</span></a>
+        <div className="auth-heading"><span className="eyebrow">YOUR COMMITMENTS. YOUR WORKSPACE.</span><h1 id="auth-title">{title}<span className="orange">.</span></h1><p>{signup ? 'Choose a secure way to create your private workspace.' : 'Choose how you want to access your workspace.'}</p></div>
+        {state === 'loading' ? <p className="auth-loading" role="status">Opening PromiseGuard…</p> : <>
+          <div className="social-auth" aria-label="Social authentication">{(['google','github','slack'] as const).map(provider => {const providerName=provider[0].toUpperCase()+provider.slice(1);return providers[provider] ? <a className="social-button" href={`/api/auth/${provider}/start`} aria-label={`Continue with ${providerName}`} title={`Continue with ${providerName}`} key={provider}><Provider name={providerName}/><span>{providerName}</span></a> : <span className="social-button unavailable" aria-disabled="true" title={`${providerName} setup pending`} key={provider}><Provider name={providerName}/><span>{providerName}</span></span>;})}</div>
+          <div className="auth-divider"><span>or use a password</span></div>
+          <form className="auth-form" onSubmit={submit}>
+            <label htmlFor="username">Username</label><input id="username" value={name} onChange={e => setName(e.target.value)} autoComplete="username" minLength={3} maxLength={100} placeholder="Enter your username" required/>
+            <label htmlFor="password">Password</label><input id="password" type="password" value={password} onChange={e => setPassword(e.target.value)} autoComplete={signup ? 'new-password' : 'current-password'} minLength={12} maxLength={256} placeholder="At least 12 characters" required/>
+            {signup && <><label htmlFor="confirm-password">Confirm password</label><input id="confirm-password" type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} autoComplete="new-password" minLength={12} maxLength={256} placeholder="Enter the password again" required/></>}
+            {error && <p className="alert error" role="alert">{error}</p>}
+            <button className="auth-submit" disabled={busy}>{busy ? 'Please wait…' : signup ? 'Create account' : 'Sign in'} <span aria-hidden="true">↗</span></button>
+          </form>
+          <p className="auth-legal">By continuing, you agree to the <a href="/terms.html">Terms</a> and acknowledge the <a href="/privacy.html">Privacy Policy</a>.</p>
+        </>}
+      </div>
+      <div className="auth-card-footer"><span>{signup ? 'Already have an account?' : 'New to PromiseGuard?'}</span><button className="auth-switch" type="button" onClick={switchMode}>{signup ? 'Sign in' : 'Create an account'}</button></div>
+    </section>
+    <p className="auth-footnote">Evidence before action. Proof after.</p>
+  </main>;
 }
 createRoot(document.getElementById('root')!).render(<Auth />);
