@@ -180,6 +180,16 @@ summary { cursor: pointer; }
 .changes-intro p { font-size: 11px; color: var(--muted); margin: 6px 0 0; }
 .verified-count { font-size: 25px; line-height: 1.2; text-align: right; }
 .verified-count small { display: block; font-family: Consolas, monospace; font-size: 8px; letter-spacing: 1px; color: var(--muted); margin-top: 6px; }
+.verification-receipt { margin: 0 0 22px; padding: 18px; border: 1px solid #b8c9aa; border-radius: 5px; background: #edf3e7; }
+.receipt-heading { display: flex; align-items: center; gap: 11px; }
+.receipt-heading > div { display: grid; gap: 4px; }
+.receipt-heading strong { font-size: 13px; font-weight: 600; color: #344d2a; }
+.receipt-check { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: #405b35; color: #fff; font-size: 16px; }
+.receipt-grid, .action-proof { display: grid; margin: 16px 0 0; }
+.receipt-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 18px; padding-top: 14px; border-top: 1px solid #cbd8c1; }
+.receipt-grid div, .action-proof div { min-width: 0; }
+.receipt-grid dt, .action-proof dt { color: var(--muted); font-family: Consolas, monospace; font-size: 8px; letter-spacing: .8px; }
+.receipt-grid dd, .action-proof dd { margin: 5px 0 0; font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; }
 .action-list { display: grid; gap: 18px; }
 .action-card { padding: 19px; border: 1px solid var(--line); border-radius: 5px; background: #fbfbf6; }
 .action-card.verified { border-color: #abc49b; }
@@ -189,6 +199,8 @@ summary { cursor: pointer; }
 .action-top small { font-size: 10px; color: var(--muted); display: block; margin-top: 3px; }
 .action-card pre { background: #eff1e8; border: 1px solid #e0e4d7; padding: 16px; font-family: inherit; font-size: 12px; line-height: 1.85; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 340px; overflow: auto; border-radius: 4px; }
 .action-card > a { font-size: 11px; color: #5d6d4b; }
+.action-proof { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 0 0 14px; padding: 12px; border: 1px solid #d5dfcc; border-radius: 4px; background: #f4f7ef; }
+.action-proof dd { color: #40573a; }
 .before-status { margin-top: 20px; }
 .before-status span { font-family: Consolas, monospace; font-size: 9px; color: var(--muted); }
 .before-status p { font-size: 12px; margin: 4px 0 0; }
@@ -351,6 +363,7 @@ footer { display: flex; align-items: center; gap: 25px; justify-content: space-b
   .action-top { flex-wrap: wrap; }
   .action-top > div { min-width: 120px; }
   .action-card pre { padding: 12px; font-size: 11px; }
+  .receipt-grid, .action-proof { grid-template-columns: 1fr; }
   .changes-intro h4 { font-size: 18px; }
   .changes-intro p { font-size: 11px; }
   .approval { padding: 17px; }
