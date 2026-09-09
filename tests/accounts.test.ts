@@ -18,7 +18,7 @@ function run(id='aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'): Run {
   return {id,createdAt:'2026-09-09',updatedAt:'2026-09-09',status:'review',targets:{issueUrl:'https://github.com/unit/fixture/issues/1',commitmentIssueUrl:'https://github.com/unit/fixture/issues/2',notionPageUrl:'',slackChannel:'',slackThread:'',owner:'Unit',model:'unit'},actions:[],events:[]};
 }
 async function accountStore(key = randomBytes(32)) {
-  const store = await Store.open(':memory:');
+  const store = await Store.open(':memory:', 'local', {});
   return { store, accounts: await Accounts.initialize(store.db, key) };
 }
 test('passwords are salted; sessions expire and logout revokes them', async () => {
@@ -154,7 +154,7 @@ test('concurrent Slack token use performs one rotation and saves the replacement
   } finally {globalThis.fetch=original;await store.db.close();}
 });
 test('owner scope prevents reading, updating, and overwriting another user’s settings or runs', async () => {
-  const dir=mkdtempSync(join(tmpdir(),'pg-scope-'));const path=join(dir,'db');const root=await Store.open(path),a=root.scoped('alice'),b=root.scoped('bob');
+  const dir=mkdtempSync(join(tmpdir(),'pg-scope-'));const path=join(dir,'db');const root=await Store.open(path,'local',{}),a=root.scoped('alice'),b=root.scoped('bob');
   try {await a.save(run());await a.setSetting('targets',{private:'alice'});assert.deepEqual(await b.list(),[]);assert.equal(await b.setting('targets'),null);await assert.rejects(b.get(run().id),/not found/);await assert.rejects(b.save({...run(),status:'dismissed'}),/not found/);assert.equal((await a.get(run().id)).status,'review');await b.setSetting('targets',{private:'bob'});assert.deepEqual(await a.setting('targets'),{private:'alice'});}finally{await root.db.close();rmSync(dir,{recursive:true,force:true});}
 });
 test('missing encryption key fails closed instead of replacing keys for existing credentials',async()=>{
@@ -162,7 +162,7 @@ test('missing encryption key fails closed instead of replacing keys for existing
   try{await accounts.setConnection('alice','GITHUB_TOKEN','unit');await assert.rejects(encryptionKey(join(dir,'missing'),store.db,{}),/missing/);}finally{await store.db.close();rmSync(dir,{recursive:true,force:true});}
 });
 test('HTTP authentication and ownership protect every workspace entry point', async () => {
-  const dir=mkdtempSync(join(tmpdir(),'pg-http-'));const path=join(dir,'db');const {server,accounts}=await createApp(path,randomBytes(32),0);
+  const dir=mkdtempSync(join(tmpdir(),'pg-http-'));const path=join(dir,'db');const {server,accounts}=await createApp(path,randomBytes(32),0,'',{});
   const alice=await accounts.create('alice',password);const bobby=await accounts.create('bobby',password);
   const owned=new Store(accounts.db,alice.id);await owned.save(run());await owned.setSetting('targets',{private:'alice'});
   await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
@@ -215,7 +215,7 @@ test('HTTP authentication and ownership protect every workspace entry point', as
   }finally{await new Promise<void>(resolve=>server.close(()=>resolve()));rmSync(dir,{recursive:true,force:true});}
 });
 test('legacy data requires an explicit one-time claim and preserves run payloads',async()=>{
-  const dir=mkdtempSync(join(tmpdir(),'pg-legacy-'));const path=join(dir,'db');const legacy=await Store.open(path);const accounts=await Accounts.initialize(legacy.db,randomBytes(32));
+  const dir=mkdtempSync(join(tmpdir(),'pg-legacy-'));const path=join(dir,'db');const legacy=await Store.open(path,'local',{});const accounts=await Accounts.initialize(legacy.db,randomBytes(32));
   try {
     await legacy.save(run());await legacy.db.run('INSERT INTO settings VALUES (?,?)','targets',JSON.stringify({private:'legacy'}));
     await legacy.setSetting('new-local-setting',{private:'local-scoped'});
@@ -231,18 +231,18 @@ test('terminal provisioning imports only into the named owner without printing t
   // Provisioning creates its own private data directory in the temporary workspace.
   try {
     writeFileSync(join(dir,'.env'),'GITHUB_TOKEN=synthetic-cli-token\n');
-    const output=execFileSync(resolve('node_modules/.bin/tsx'),[resolve('scripts/create-account.ts'),'cli-owner','--claim-local'],{cwd:dir,input:password,encoding:'utf8'});
+    const output=execFileSync(resolve('node_modules/.bin/tsx'),[resolve('scripts/create-account.ts'),'cli-owner','--claim-local'],{cwd:dir,input:password,encoding:'utf8',env:{...process.env,TURSO_DATABASE_URL:'',TURSO_AUTH_TOKEN:''}});
     assert.match(output,/Created account cli-owner/);assert.ok(!output.includes(password));assert.ok(!output.includes('synthetic-cli-token'));
-    const store=await Store.open(path);try{const user=(await store.db.get<{id:string}>('SELECT id FROM users WHERE name=?','cli-owner'))!;const accounts=await Accounts.initialize(store.db,await encryptionKey(join(dir,'data','credentials.key'),store.db,{}));assert.equal((await accounts.credentials(user.id)).GITHUB_TOKEN,'synthetic-cli-token');}finally{await store.db.close();}
+    const store=await Store.open(path,'local',{});try{const user=(await store.db.get<{id:string}>('SELECT id FROM users WHERE name=?','cli-owner'))!;const accounts=await Accounts.initialize(store.db,await encryptionKey(join(dir,'data','credentials.key'),store.db,{}));assert.equal((await accounts.credentials(user.id)).GITHUB_TOKEN,'synthetic-cli-token');}finally{await store.db.close();}
   }finally{rmSync(dir,{recursive:true,force:true});}
 });
 
 test('public runtime requires an exact HTTPS origin and secure session cookie', async () => {
   const dir=mkdtempSync(join(tmpdir(),'pg-public-'));
   const path=join(dir,'nested','promiseguard.sqlite');
-  await assert.rejects(createApp(path,randomBytes(32),443,'http://example.test'),/HTTPS origin/);
-  await assert.rejects(createApp(path,randomBytes(32),443,'https://user@example.test/path'),/HTTPS origin/);
-  const {server,accounts}=await createApp(path,randomBytes(32),443,'https://promiseguard.example');
+  await assert.rejects(createApp(path,randomBytes(32),443,'http://example.test',{}),/HTTPS origin/);
+  await assert.rejects(createApp(path,randomBytes(32),443,'https://user@example.test/path',{}),/HTTPS origin/);
+  const {server,accounts}=await createApp(path,randomBytes(32),443,'https://promiseguard.example',{});
   await accounts.create('public-user',password);
   await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
   const address=server.address() as {port:number};

@@ -111,7 +111,7 @@ test('Slack generated text cannot introduce special mention markup', () => {
   assert.equal(slackText('<!channel> & <@U123>'), '&lt;!channel&gt; &amp; &lt;@U123&gt;');
 });
 test('SQLite recovery preserves verified writes and marks interrupted writes unknown', async () => {
-  const store = await Store.open(':memory:');
+  const store = await Store.open(':memory:', 'local', {});
   const run = fixture(); run.actions = planActions(run); run.status = 'executing';
   run.actions[0].status = 'verified'; run.actions[0].externalId = 'unit-comment';
   run.actions[1].status = 'in_flight';
@@ -125,7 +125,7 @@ test('SQLite recovery preserves verified writes and marks interrupted writes unk
   await store.db.close();
 });
 test('interrupted analysis stops without leaving a permanently active run', async () => {
-  const store = await Store.open(':memory:'); const run = fixture(); run.status = 'collecting';
+  const store = await Store.open(':memory:', 'local', {}); const run = fixture(); run.status = 'collecting';
   await store.save(run); await store.recover();
   assert.equal((await store.get(run.id)).status, 'failed');
   assert.deepEqual((await store.get(run.id)).actions, []);
@@ -219,7 +219,7 @@ test('changing the integration selection invalidates approval', () => {
 });
 test('GitHub-only recovery preserves the single action without inventing other destinations', async () => {
   const run = githubOnlyFixture(); run.actions = planActions(run); run.status = 'executing'; run.actions[0].status = 'in_flight';
-  const store = await Store.open(':memory:'); await store.save(run); await store.recover();
+  const store = await Store.open(':memory:', 'local', {}); await store.save(run); await store.recover();
   const recovered = await store.get(run.id);
   assert.equal(recovered.status, 'partial');
   assert.equal(recovered.actions.length, 1);
