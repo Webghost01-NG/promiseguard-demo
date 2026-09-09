@@ -28,6 +28,11 @@ export class Accounts {
     this.db.prepare('INSERT INTO users VALUES (?,?,?,?)').run(user.id, name, salt, value.toString('hex'));
     return user;
   }
+  async ensurePasswordAccount(name: string, password: string) {
+    const normalized = name.trim().toLowerCase();
+    const existing = this.db.prepare('SELECT id,name FROM users WHERE name=?').get(normalized) as User|undefined;
+    return existing || this.create(normalized,password);
+  }
   claimLocal(userId: string, tokens: Record<string,string>) {
     this.db.exec('BEGIN IMMEDIATE');
     try {

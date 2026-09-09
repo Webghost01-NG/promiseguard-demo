@@ -27,6 +27,16 @@ test('passwords are salted; sessions expire and logout revokes them', async () =
     const next = await accounts.login('alice',password);store.db.exec('UPDATE sessions SET expires=0');assert.equal(accounts.session(next.token),undefined);
   } finally {store.db.close();}
 });
+test('operator bootstrap is idempotent and does not replace its password', async () => {
+  const store = new Store(':memory:'); const accounts = new Accounts(store.db,randomBytes(32));
+  try {
+    const first=await accounts.ensurePasswordAccount('Admin.User',password);
+    const again=await accounts.ensurePasswordAccount('admin.user','a-different-password');
+    assert.equal(first.id,again.id);
+    assert.equal((await accounts.login('admin.user',password)).user.id,first.id);
+    await assert.rejects(accounts.login('admin.user','a-different-password'),/Invalid/);
+  } finally {store.db.close();}
+});
 test('sign-in attempts are limited including unknown accounts', async () => {
   const store = new Store(':memory:');const accounts=new Accounts(store.db,randomBytes(32));
   try {for(let i=0;i<5;i++)await assert.rejects(accounts.login('unknown',password),/Invalid/);await assert.rejects(accounts.login('unknown',password),/Too many/);}finally{store.db.close();}

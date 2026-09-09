@@ -171,7 +171,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   const port = Number(process.env.PORT || 4317);
   if (!Number.isSafeInteger(port) || port < 1 || port > 65535) throw new Error('PORT must be an integer between 1 and 65535.');
   const dataDir = resolve(process.env.PROMISEGUARD_DATA_DIR || 'data');
-  const {server} = createApp(join(dataDir, 'promiseguard.sqlite'), undefined, port, publicUrl);
+  const {server,accounts} = createApp(join(dataDir, 'promiseguard.sqlite'), undefined, port, publicUrl);
+  const adminUser = process.env.PROMISEGUARD_ADMIN_USER || '', adminPassword = process.env.PROMISEGUARD_ADMIN_PASSWORD || '';
+  if (Boolean(adminUser) !== Boolean(adminPassword)) throw new Error('Set both PROMISEGUARD_ADMIN_USER and PROMISEGUARD_ADMIN_PASSWORD, or neither.');
+  if (adminUser) await accounts.ensurePasswordAccount(adminUser,adminPassword);
   const host = publicUrl ? '0.0.0.0' : '127.0.0.1';
   server.listen(port, host, () => console.log(`PromiseGuard running at ${publicUrl || `http://127.0.0.1:${port}`}`));
   server.on('error', error => { console.error(`Server could not start: ${error.message}`); process.exitCode = 1; });
