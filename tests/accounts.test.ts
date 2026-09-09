@@ -10,6 +10,7 @@ import { Store } from '../server/store.ts';
 import { Accounts, encryptionKey } from '../server/accounts.ts';
 import { createApp } from '../server/index.ts';
 import { workflowGrantMeta } from '../server/workflow-oauth.ts';
+import { buildGrant, GithubInstallationRequired } from '../server/github-connection.ts';
 import { redact } from '../server/providers.ts';
 import type { Run } from '../server/domain.ts';
 const password = 'synthetic-test-password-only';
@@ -105,6 +106,23 @@ test('workflow OAuth metadata exposes workspace labels without grant secrets', (
   assert.equal(workflowGrantMeta('manual-token'),undefined);
   assert.equal(redact('provider echoed hidden-slack and hidden-refresh',{SLACK_BOT_TOKEN:slack}),'provider echoed [redacted] and [redacted]');
 });
+test('GitHub authorization recovers every existing App installation and its selected repositories', async () => {
+  const original=globalThis.fetch;
+  globalThis.fetch=async input=>{
+    const path=new URL(String(input)).pathname+new URL(String(input)).search;
+    if(path==='/user')return Response.json({id:7});
+    if(path==='/user/installations?per_page=100&page=1')return Response.json({total_count:2,installations:[{id:42},{id:84}]});
+    if(path==='/user/installations/42/repositories?per_page=100&page=1')return Response.json({total_count:1,repositories:[{full_name:'unit/one'}]});
+    if(path==='/user/installations/84/repositories?per_page=100&page=1')return Response.json({total_count:2,repositories:[{full_name:'unit/two'},{full_name:'unit/one'}]});
+    throw new Error(`Unexpected GitHub request: ${path}`);
+  };
+  try {
+    const grant=await buildGrant({access_token:'unit-access',refresh_token:'unit-refresh',expires_in:60,refresh_token_expires_in:120});
+    assert.deepEqual(grant.installationIds,[42,84]);assert.equal(grant.installationId,42);assert.deepEqual(grant.repositories,['unit/one','unit/two']);
+    globalThis.fetch=async input=>new URL(String(input)).pathname==='/user'?Response.json({id:7}):Response.json({total_count:0,installations:[]});
+    await assert.rejects(buildGrant({access_token:'unit-access'}),GithubInstallationRequired);
+  } finally {globalThis.fetch=original;}
+});
 test('owner scope prevents reading, updating, and overwriting another user’s settings or runs', () => {
   const dir=mkdtempSync(join(tmpdir(),'pg-scope-'));const path=join(dir,'db');const a=new Store(path,'alice'),b=new Store(path,'bob');
   try {a.save(run());a.setSetting('targets',{private:'alice'});assert.deepEqual(b.list(),[]);assert.equal(b.setting('targets'),null);assert.throws(()=>b.get(run().id),/not found/);assert.throws(()=>b.save({...run(),status:'dismissed'}),/not found/);assert.equal(a.get(run().id).status,'review');b.setSetting('targets',{private:'bob'});assert.deepEqual(a.setting('targets'),{private:'alice'});}finally{a.db.close();b.db.close();rmSync(dir,{recursive:true,force:true});}
@@ -146,6 +164,7 @@ test('HTTP authentication and ownership protect every workspace entry point', as
     process.env.SLACK_CLIENT_ID='unit-slack';process.env.SLACK_CLIENT_SECRET='unit-slack-secret';process.env.NOTION_CLIENT_ID='unit-notion';process.env.NOTION_CLIENT_SECRET='unit-notion-secret';
     try {
       const reconnect=await request('/api/connections/github/start','GET',undefined,b.cookie);assert.equal(reconnect.status,302);assert.match(reconnect.headers.get('location')||'',/^https:\/\/github\.com\/login\/oauth\/authorize\?/);assert.match(reconnect.headers.get('location')||'',/code_challenge=/);
+      const recover=await request('/api/connections/github/start','GET',undefined,a.cookie);assert.equal(recover.status,302);assert.match(recover.headers.get('location')||'',/^https:\/\/github\.com\/login\/oauth\/authorize\?/);assert.match(recover.headers.get('location')||'',/code_challenge=/);
       const reconnectUrl=new URL(reconnect.headers.get('location')!);const state=reconnectUrl.searchParams.get('state')!;const connectionCookie=(reconnect.headers.get('set-cookie')||'').split(';')[0];
       const cancelled=await request(`/api/connections/github/callback?state=${state}&error=access_denied`,'GET',undefined,`${b.cookie}; ${connectionCookie}`);assert.equal(cancelled.status,302);assert.match(decodeURIComponent(cancelled.headers.get('location')||''),/connection_error=GitHub authorization was cancelled/);
       const repositories=await request('/api/connections/github/repositories','GET',undefined,b.cookie);assert.equal(repositories.status,302);assert.match(repositories.headers.get('location')||'',/^https:\/\/github\.com\/apps\/unit-app\/installations\/new\?state=/);

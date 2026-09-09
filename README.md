@@ -131,4 +131,4 @@ GitHub and Gemini are required. Notion and Slack are optional for each run.
 
 ![GitHub-only source selection](docs/assets/github-only.png)
 
-Social sign-up, password sign-in, and isolated workspaces are implemented. Workflow-token OAuth and repository selection remain future connection improvements; see [OAuth onboarding](docs/oauth-onboarding.md).
+Social sign-up, password sign-in, isolated workspaces, workflow OAuth, and GitHub App repository selection are implemented; see [OAuth onboarding](docs/oauth-onboarding.md).

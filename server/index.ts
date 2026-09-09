@@ -8,7 +8,7 @@ import { Store } from './store.ts';
 import { Providers, credentials } from './providers.ts';
 import { Coordinator } from './coordinator.ts';
 import { validateTargets } from './domain.ts';
-import { buildGrant, challenge, disconnectGithub, exchange, githubAppConfig, githubToken, grantMeta, verifier } from './github-connection.ts';
+import { buildGrant, challenge, disconnectGithub, exchange, GithubInstallationRequired, githubAppConfig, githubToken, grantMeta, verifier } from './github-connection.ts';
 import { disconnectWorkflow, exchangeWorkflowCode, workflowAuthorizeUrl, workflowGrantMeta, workflowOauthAvailable, workflowOauthConfig, workflowToken, type WorkflowProvider } from './workflow-oauth.ts';
 
 process.umask(0o077);
@@ -127,7 +127,15 @@ export function createApp(path = 'data/promiseguard.sqlite', key?: Buffer, port 
             const state=url.searchParams.get('state')||'';if(!state||state!==connectionCookie)throw new Error('The GitHub authorization did not match this browser.');
             const saved=accounts.consumeConnectionOauth('github-authorize',state);if(!saved)throw new Error('The GitHub authorization expired or was already used.');
             if(url.searchParams.get('error'))throw new Error('GitHub authorization was cancelled. Your existing connection was unchanged.');
-            const grant=await buildGrant(await exchange(url.searchParams.get('code')||'',saved.verifier,`${requestOrigin}/api/connections/github/callback`,githubConfig),Number(saved.installation_id));
+            const exchanged=await exchange(url.searchParams.get('code')||'',saved.verifier,`${requestOrigin}/api/connections/github/callback`,githubConfig);
+            let grant;
+            try{grant=await buildGrant(exchanged,Number(saved.installation_id));}
+            catch(error){
+              if(!(error instanceof GithubInstallationRequired))throw error;
+              const installState=accounts.beginConnectionOauth(saved.user_id,'','github-install','','',saved.session_hash);
+              res.setHeader('Set-Cookie',`pg_connect_oauth=${installState}; HttpOnly; SameSite=Lax; Path=/api/connections/github; Max-Age=600${publicOrigin?'; Secure':''}`);
+              res.writeHead(302,{Location:`https://github.com/apps/${encodeURIComponent(githubConfig.slug)}/installations/new?state=${installState}`,'Cache-Control':'no-store'});return res.end();
+            }
             accounts.setConnection(saved.user_id,'GITHUB_TOKEN',JSON.stringify(grant));
             res.setHeader('Set-Cookie',`pg_connect_oauth=; HttpOnly; SameSite=Lax; Path=/api/connections/github; Max-Age=0${publicOrigin?'; Secure':''}`);res.writeHead(302,{Location:'/?connection=github','Cache-Control':'no-store'});return res.end();
           }catch(error){res.setHeader('Set-Cookie',`pg_connect_oauth=; HttpOnly; SameSite=Lax; Path=/api/connections/github; Max-Age=0${publicOrigin?'; Secure':''}`);res.writeHead(302,{Location:`/?connection_error=${encodeURIComponent((error as Error).message.slice(0,300))}`});return res.end();}
@@ -176,7 +184,7 @@ export function createApp(path = 'data/promiseguard.sqlite', key?: Buffer, port 
         if(req.method==='GET'&&(url.pathname==='/api/connections/github/start'||url.pathname==='/api/connections/github/repositories')){
           if(!githubConfig.clientId||!githubConfig.clientSecret||!githubConfig.slug)throw new Error('GitHub App connection is not configured.');
           const existing=grantMeta(accounts.credentials(user.id).GITHUB_TOKEN||'');
-          if(existing&&url.pathname==='/api/connections/github/start')return authorizeGithub(user.id,token,existing.installationId);
+          if(url.pathname==='/api/connections/github/start')return authorizeGithub(user.id,token,existing?.installationId || 0);
           const state=accounts.beginConnectionOauth(user.id,token,'github-install');
           res.setHeader('Set-Cookie',`pg_connect_oauth=${state}; HttpOnly; SameSite=Lax; Path=/api/connections/github; Max-Age=600${publicOrigin?'; Secure':''}`);
           res.writeHead(302,{Location:`https://github.com/apps/${encodeURIComponent(githubConfig.slug)}/installations/new?state=${state}`,'Cache-Control':'no-store'});return res.end();

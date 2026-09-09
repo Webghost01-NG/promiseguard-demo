@@ -9,8 +9,11 @@ export type GithubGrant = {
   refreshExpiresAt: number;
   githubUserId: number;
   installationId: number;
+  installationIds?: number[];
   repositories: string[];
 };
+
+export class GithubInstallationRequired extends Error {}
 
 type GithubConfig = { clientId: string; clientSecret: string; slug: string };
 const refreshes = new WeakMap<Accounts, Map<string, Promise<string>>>();
@@ -88,14 +91,30 @@ export async function exchange(code: string, codeVerifier: string, redirectUri: 
   return data;
 }
 
-export async function buildGrant(token: any, installationId: number): Promise<GithubGrant> {
+export async function buildGrant(token: any, installation: number | number[] = 0): Promise<GithubGrant> {
   const user = await github('/user', token.access_token);
-  await github(`/user/installations/${installationId}`, token.access_token);
-  const repositories: string[] = [];
-  for (let page = 1; ; page++) {
-    const result = await github(`/user/installations/${installationId}/repositories?per_page=100&page=${page}`, token.access_token);
-    repositories.push(...(result.repositories || []).map((repository: any) => repository.full_name));
-    if (repositories.length >= result.total_count || !(result.repositories || []).length) break;
+  let installationIds = Array.isArray(installation) ? installation : installation > 0 ? [installation] : [];
+  if (installationIds.length) {
+    for (const installationId of installationIds) await github(`/user/installations/${installationId}`, token.access_token);
+  } else {
+    for (let page = 1; ; page++) {
+      const result = await github(`/user/installations?per_page=100&page=${page}`, token.access_token);
+      const pageIds = (result.installations || []).map((item: any) => Number(item.id)).filter((id: number) => Number.isSafeInteger(id) && id > 0);
+      installationIds.push(...pageIds);
+      if (installationIds.length >= result.total_count || !pageIds.length) break;
+    }
+    if (!installationIds.length) throw new GithubInstallationRequired('Install the GitHub App before authorizing repository access.');
+  }
+  const repositorySet = new Set<string>();
+  for (const installationId of installationIds) {
+    let collected = 0;
+    for (let page = 1; ; page++) {
+      const result = await github(`/user/installations/${installationId}/repositories?per_page=100&page=${page}`, token.access_token);
+      const names = (result.repositories || []).map((repository: any) => repository.full_name).filter(Boolean);
+      names.forEach((name: string) => repositorySet.add(name));
+      collected += names.length;
+      if (collected >= result.total_count || !names.length) break;
+    }
   }
   return {
     kind: 'github-app-user',
@@ -104,8 +123,9 @@ export async function buildGrant(token: any, installationId: number): Promise<Gi
     expiresAt: Date.now() + (token.expires_in || 28800) * 1000,
     refreshExpiresAt: Date.now() + (token.refresh_token_expires_in || 0) * 1000,
     githubUserId: user.id,
-    installationId,
-    repositories
+    installationId: installationIds[0],
+    installationIds,
+    repositories: [...repositorySet]
   };
 }
 
@@ -134,7 +154,7 @@ async function refreshGithubToken(accounts: Accounts, userId: string, config: Gi
   });
   const token = await response.json() as any;
   if (!response.ok || !token.access_token) throw new Error('GitHub authorization was revoked or expired. Reconnect GitHub.');
-  const refreshed = await buildGrant(token, grant.installationId);
+  const refreshed = await buildGrant(token, grant.installationIds?.length ? grant.installationIds : grant.installationId);
   if (refreshed.githubUserId !== grant.githubUserId) throw new Error('GitHub connection identity changed. Reconnect GitHub.');
   accounts.setConnection(userId, 'GITHUB_TOKEN', JSON.stringify(refreshed));
   return refreshed.accessToken;
