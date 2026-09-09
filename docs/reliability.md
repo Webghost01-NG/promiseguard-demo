@@ -64,11 +64,13 @@ PromiseGuard does not claim a cross-provider transaction or universal exactly-on
 
 ## Measured evidence
 
-The repository contains 48 automated checks. A normal local run passes 47 and skips the credential-gated Turso test. With Turso credentials explicitly supplied, all 48 pass, including close/reopen persistence, encrypted connection recovery, owner-scoped runs/settings, and deletion of randomized test records.
+The repository contains 49 automated checks. A normal local run passes 48 and skips the credential-gated Turso test. With Turso credentials explicitly supplied, all 49 pass, including close/reopen persistence, encrypted connection recovery, owner-scoped runs/settings, and deletion of randomized test records.
 
 The real-Gemini evaluation contains 24 synthetic cases balanced across `repair`, `no_change`, and `clarify`. On `gemini-3.1-flash-lite`, the 9 September 2026 run scored 22/24 (91.7%): repair 8/8, no-change 8/8, and clarify 6/8, with no API or validation errors. Both misses returned conservative `no_change` rather than `repair`, so they could not authorize external writes. The report contained aggregate outcomes and case labels only; no credentials or model response bodies were stored.
 
 The production build passes, and the production dependency audit reports zero known vulnerabilities. A live probe returned HTTP 200 for the page and `/api/health`, with CSP, HSTS, frame denial, no-referrer, and MIME protection present. Render reports one active free-plan service backed by Turso. Google, GitHub, and Slack sign-in are enabled and each start endpoint returns an HTTPS provider redirect with PKCE and the exact production callback.
+
+A controlled real-provider recovery test wrote one labeled synthetic GitHub comment, discarded its returned identity, reconciled the unknown action by exact actor, issue, and content, found exactly one match, and independently read it back. The [verified provider record](https://github.com/Webghost01-NG/promiseguard-demo/issues/1#issuecomment-5610265017) remains on the dedicated demo issue and has a guarded cleanup command.
 
 Reproduce the checks:
 
@@ -88,4 +90,4 @@ The evaluation sends real Gemini requests and uses five-second pacing for the fr
 - The free Render service can sleep and has one process. The first request after idle may be slow.
 - Pagination and evidence size are deliberately bounded. Notion pages must be flat and Slack discussions must be focused.
 - There is no password-reset interface. Social accounts avoid that limitation; password accounts require operator recovery.
-- A full three-provider recovery capture remains tracked in [issues #35](https://github.com/Webghost01-NG/promiseguard-demo/issues/35) and [#36](https://github.com/Webghost01-NG/promiseguard-demo/issues/36).
+- A full three-provider receipt remains tracked in [issue #35](https://github.com/Webghost01-NG/promiseguard-demo/issues/35) and requires one user to authorize all three workflow applications in the fresh Turso workspace.
