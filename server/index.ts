@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { Accounts, connectionKeys, encryptionKey } from './accounts.ts';
+import { Accounts, connectionKeys, encryptionKey, identityProviders, type IdentityProvider } from './accounts.ts';
+import { SocialAuth } from './oauth.ts';
 import { pathToFileURL } from 'node:url';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve, extname, join } from 'node:path';
@@ -35,6 +36,7 @@ export function createApp(path = 'data/promiseguard.sqlite', key?: Buffer, port 
   const publicOrigin = externalOrigin(publicUrl);
   const root = new Store(path);
   const accounts = new Accounts(root.db, key || encryptionKey(join(resolve(path, '..'), 'credentials.key'), root.db));
+  let socialAuth: SocialAuth | undefined;
   const contexts = new Map<string, {store:Store;providers:Providers;coordinator:Coordinator}>();
   function context(owner: string) {
     let value = contexts.get(owner);
@@ -54,15 +56,43 @@ export function createApp(path = 'data/promiseguard.sqlite', key?: Buffer, port 
     const activePort = port || (server.address() as {port:number}).port;
     const allowedHosts = publicOrigin ? [new URL(publicOrigin).host] : [`127.0.0.1:${activePort}`, `localhost:${activePort}`];
     const allowedOrigins = publicOrigin ? [publicOrigin] : allowedHosts.map(host => `http://${host}`);
+    const requestOrigin = publicOrigin || `http://127.0.0.1:${activePort}`;
+    socialAuth ||= new SocialAuth(accounts, requestOrigin);
     if (publicOrigin) res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
     if (!allowedHosts.includes(req.headers.host || '')) return json(res, 403, { error: 'Unexpected request host.' });
     if (req.headers.origin && !allowedOrigins.includes(req.headers.origin)) return json(res, 403, { error: 'Cross-origin requests are not allowed.' });
-    if (req.headers['sec-fetch-site'] === 'cross-site') return json(res, 403, { error: 'Cross-site requests are not allowed.' });
+    const oauthCallback = /^\/api\/auth\/(google|github|slack)\/callback$/.test((req.url || '').split('?')[0]);
+    if (req.headers['sec-fetch-site'] === 'cross-site' && !oauthCallback) return json(res, 403, { error: 'Cross-site requests are not allowed.' });
     try {
       const url = new URL(req.url || '/', publicOrigin || `http://127.0.0.1:${activePort}`);
       if (url.pathname.startsWith('/api/')) {
         if (req.method === 'GET' && url.pathname === '/api/health') return json(res, 200, { status: 'ok' });
         const token = req.headers.cookie?.split(';').map(s => s.trim()).find(s => s.startsWith('pg_session='))?.slice(11) || '';
+        const oauthCookie = req.headers.cookie?.split(';').map(s => s.trim()).find(s => s.startsWith('pg_oauth='))?.slice(9) || '';
+        if (req.method === 'GET' && url.pathname === '/api/auth/providers') return json(res, 200, socialAuth.available());
+        const authRoute = url.pathname.match(/^\/api\/auth\/(google|github|slack)\/(start|callback)$/);
+        if (req.method === 'GET' && authRoute) {
+          const provider = authRoute[1] as IdentityProvider;
+          try {
+            if (!(identityProviders as readonly string[]).includes(provider)) throw new Error('Unsupported identity provider.');
+            if (authRoute[2] === 'start') {
+              const started = await socialAuth.start(provider);
+              res.setHeader('Set-Cookie', `pg_oauth=${started.state}; HttpOnly; SameSite=Lax; Path=/api/auth; Max-Age=600${publicOrigin ? '; Secure' : ''}`);
+              res.writeHead(302,{Location:started.url.href,'Cache-Control':'no-store'}); return res.end();
+            }
+            const result = await socialAuth.finish(provider,url,oauthCookie);
+            accounts.logout(token);
+            res.setHeader('Set-Cookie',[
+              `pg_session=${result.token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800${publicOrigin ? '; Secure' : ''}`,
+              `pg_oauth=; HttpOnly; SameSite=Lax; Path=/api/auth; Max-Age=0${publicOrigin ? '; Secure' : ''}`
+            ]);
+            res.writeHead(302,{Location:'/', 'Cache-Control':'no-store'}); return res.end();
+          } catch (error) {
+            const message = encodeURIComponent((error as Error).message.slice(0,300));
+            res.setHeader('Set-Cookie',`pg_oauth=; HttpOnly; SameSite=Lax; Path=/api/auth; Max-Age=0${publicOrigin ? '; Secure' : ''}`);
+            res.writeHead(302,{Location:`/?auth_error=${message}`,'Cache-Control':'no-store'}); return res.end();
+          }
+        }
         if (req.method !== 'GET' && (!allowedOrigins.includes(req.headers.origin || '') || !req.headers['content-type']?.startsWith('application/json'))) return json(res, 403, {error:'Same-origin JSON request required.'});
         if (req.method === 'POST' && url.pathname === '/api/login') {
           const input = await body(req);

@@ -5,6 +5,8 @@ import type { DatabaseSync } from 'node:sqlite';
 const derive = promisify(scrypt);
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 export const connectionKeys = ['GITHUB_TOKEN', 'NOTION_TOKEN', 'SLACK_BOT_TOKEN'] as const;
+export const identityProviders = ['google', 'github', 'slack'] as const;
+export type IdentityProvider = typeof identityProviders[number];
 export type User = { id: string; name: string };
 export class Accounts {
   constructor(public db: DatabaseSync, private key: Buffer) {
@@ -12,7 +14,9 @@ export class Accounts {
     db.exec(`CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL, salt TEXT NOT NULL, password TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS sessions (hash TEXT PRIMARY KEY, user_id TEXT NOT NULL, csrf TEXT NOT NULL, expires INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS connections (user_id TEXT NOT NULL, provider TEXT NOT NULL, secret TEXT NOT NULL, PRIMARY KEY(user_id, provider));
-      CREATE TABLE IF NOT EXISTS login_attempts (name TEXT PRIMARY KEY, count INTEGER NOT NULL, expires INTEGER NOT NULL);`);
+      CREATE TABLE IF NOT EXISTS login_attempts (name TEXT PRIMARY KEY, count INTEGER NOT NULL, expires INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS identities (provider TEXT NOT NULL, subject TEXT NOT NULL, user_id TEXT NOT NULL, email TEXT, PRIMARY KEY(provider, subject));
+      CREATE TABLE IF NOT EXISTS oauth_states (hash TEXT PRIMARY KEY, provider TEXT NOT NULL, verifier TEXT NOT NULL, nonce TEXT NOT NULL, expires INTEGER NOT NULL);`);
   }
   async create(name: string, password: string): Promise<User> {
     name = name.trim().toLowerCase();
@@ -51,9 +55,47 @@ export class Accounts {
     if (!row || !timingSafeEqual(value, Buffer.from(row.password, 'hex'))) throw new Error('Invalid username or password.');
     this.db.prepare('DELETE FROM login_attempts WHERE name=?').run(name);
     this.db.prepare('DELETE FROM sessions WHERE expires<=?').run(now);
+    return this.createSession(row);
+  }
+  private createSession(user: User) {
     const token = randomBytes(32).toString('hex'), csrf = randomBytes(32).toString('hex');
-    this.db.prepare('INSERT INTO sessions VALUES (?,?,?,?)').run(hash(token), row.id, csrf, now + 8 * 3600000);
-    return { token, csrf, user: {id:row.id, name:row.name} };
+    this.db.prepare('DELETE FROM sessions WHERE expires<=?').run(Date.now());
+    this.db.prepare('INSERT INTO sessions VALUES (?,?,?,?)').run(hash(token), user.id, csrf, Date.now() + 8 * 3600000);
+    return { token, csrf, user: {id:user.id, name:user.name} };
+  }
+  beginOauth(provider: IdentityProvider, verifier: string, nonce: string) {
+    const state = randomBytes(32).toString('hex');
+    this.db.prepare('DELETE FROM oauth_states WHERE expires<=?').run(Date.now());
+    this.db.prepare('INSERT INTO oauth_states VALUES (?,?,?,?,?)').run(hash(state), provider, verifier, nonce, Date.now() + 10 * 60000);
+    return state;
+  }
+  consumeOauth(provider: IdentityProvider, state: string) {
+    if (!/^[a-f0-9]{64}$/.test(state)) return undefined;
+    const stateHash = hash(state);
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const row = this.db.prepare('SELECT verifier,nonce,expires FROM oauth_states WHERE hash=? AND provider=?').get(stateHash, provider) as {verifier:string;nonce:string;expires:number}|undefined;
+      this.db.prepare('DELETE FROM oauth_states WHERE hash=?').run(stateHash);
+      this.db.exec('COMMIT');
+      return row && row.expires > Date.now() ? {verifier:row.verifier, nonce:row.nonce} : undefined;
+    } catch (error) { this.db.exec('ROLLBACK'); throw error; }
+  }
+  socialLogin(provider: IdentityProvider, subject: string, preferredName: string, email = '') {
+    if (!subject || subject.length > 500) throw new Error('Invalid provider identity.');
+    const found = this.db.prepare('SELECT users.id,users.name FROM identities JOIN users ON users.id=identities.user_id WHERE provider=? AND subject=?').get(provider, subject) as User|undefined;
+    if (found) return this.createSession(found);
+    let base = preferredName.trim().toLowerCase().replace(/[^a-z0-9._@+-]+/g, '-').replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, '').slice(0, 70);
+    if (base.length < 3) base = `${provider}-user`;
+    let name = base, suffix = 1;
+    while (this.db.prepare('SELECT 1 FROM users WHERE name=?').get(name)) name = `${base.slice(0, 90)}-${++suffix}`;
+    const user: User = {id:randomUUID(), name};
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.db.prepare('INSERT INTO users VALUES (?,?,?,?)').run(user.id, name, randomBytes(16).toString('hex'), randomBytes(64).toString('hex'));
+      this.db.prepare('INSERT INTO identities VALUES (?,?,?,?)').run(provider, subject, user.id, email.slice(0, 320) || null);
+      this.db.exec('COMMIT');
+    } catch (error) { this.db.exec('ROLLBACK'); throw error; }
+    return this.createSession(user);
   }
   session(token: string) {
     if (!/^[a-f0-9]{64}$/.test(token)) return undefined;

@@ -383,6 +383,14 @@ footer { display: flex; align-items: center; gap: 25px; justify-content: space-b
 .signin label, .connection-form label { display: block; font-size: 12px; margin: 18px 0 8px; }
 .signin input, .connection-form input { width: 100%; border: 1px solid var(--line); border-radius: 4px; padding: 12px; background: var(--paper); color: inherit; }
 .signin .primary { margin-top: 24px; }
+.social-auth { display: grid; gap: 10px; margin-top: 28px; }
+.social-button { min-height: 46px; display: flex; align-items: center; gap: 12px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 4px; color: var(--ink); background: var(--paper); font-size: 12px; font-weight: 700; text-decoration: none; }
+.social-button:hover { border-color: var(--ink); }
+.social-button.unavailable { color: var(--muted); background: #f5f3ee; cursor: not-allowed; }
+.social-button.unavailable:hover { border-color: var(--line); }
+.auth-divider { display: flex; align-items: center; gap: 14px; margin: 25px 0 0; color: var(--muted); font-size: 10px; letter-spacing: 1px; text-transform: uppercase; }
+.auth-divider::before, .auth-divider::after { content: ''; height: 1px; background: var(--line); flex: 1; }
+.auth-divider + form { margin-top: 0; }
 .connection-buttons { display: flex; gap: 16px; align-items: center; margin-top: 12px; }
 .workspace-identity > div { max-width: 140px; overflow-wrap: anywhere; }
 @media (max-width: 850px) {
