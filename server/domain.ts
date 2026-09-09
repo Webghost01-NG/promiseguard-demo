@@ -3,9 +3,10 @@ import { z } from 'zod';
 
 export const targetSchema = z.object({
   issueUrl: z.string().url(),
-  notionPageUrl: z.string().min(1),
-  slackChannel: z.string().min(1),
-  slackThread: z.string().min(1),
+  commitmentIssueUrl: z.string().trim().optional(),
+  notionPageUrl: z.string().trim().default(''),
+  slackChannel: z.string().trim().default(''),
+  slackThread: z.string().trim().default(''),
   owner: z.string().trim().min(1).max(100),
   model: z.string().regex(/^[a-zA-Z0-9._-]+$/),
 });
@@ -14,9 +15,9 @@ export type Evidence = { id: string; provider: string; title: string; text: stri
 export type Snapshot = {
   evidence: Evidence[];
   fingerprint: string;
-  notionStatus: { id: string; text: string };
+  notionStatus?: { id: string; text: string };
   githubActor: number;
-  slackActor: string;
+  slackActor?: string;
 };
 export const assessmentSchema = z.object({
   decision: z.enum(['repair', 'no_change', 'clarify']),
@@ -101,8 +102,16 @@ export function slackMessageUrl(channelId: string, timestamp: string) {
 export function validateTargets(value: unknown): Targets {
   const targets = targetSchema.parse(value);
   githubIssue(targets.issueUrl);
-  notionId(targets.notionPageUrl);
-  slackTarget(targets.slackChannel, targets.slackThread);
+  if (targets.notionPageUrl) {
+    notionId(targets.notionPageUrl);
+    if (targets.commitmentIssueUrl) throw new Error('Choose one commitment source: a GitHub issue or a Notion page.');
+  } else {
+    if (!targets.commitmentIssueUrl) throw new Error('Add the GitHub issue documenting the commitment, or select a Notion commitment page.');
+    const commitment = githubIssue(targets.commitmentIssueUrl);
+    if (commitment.path.toLowerCase() === githubIssue(targets.issueUrl).path.toLowerCase()) throw new Error('Choose separate commitment and engineering issues so their evidence can be compared.');
+  }
+  if (Boolean(targets.slackChannel) !== Boolean(targets.slackThread)) throw new Error('To include Slack, provide both its channel and discussion link. Otherwise leave both empty.');
+  if (targets.slackChannel) slackTarget(targets.slackChannel, targets.slackThread);
   return targets;
 }
 export function validateAssessment(value: unknown, evidence: Evidence[]): Assessment {
@@ -111,10 +120,12 @@ export function validateAssessment(value: unknown, evidence: Evidence[]): Assess
   for (const citation of assessment.citations) {
     const source = evidence.find(item => item.id === citation.evidenceId);
     if (!source || !source.text.includes(citation.quote)) throw new Error('Gemini returned a citation that could not be verified against the source. No plan was approved.');
-    used.add(source.provider);
+    used.add(source.id);
   }
-  if (assessment.decision === 'repair' && (!assessment.blocker.trim() || !assessment.nextAction.trim() || !used.has('Notion') || !used.has('GitHub'))) {
-    throw new Error('A repair requires a blocker, a next action, and exact evidence from both Notion and GitHub.');
+  const commitmentId = evidence.some(e => e.id === 'notion:commitment') ? 'notion:commitment' : 'github:commitment';
+  const engineeringCited = [...used].some(id => id === 'github:issue' || /^github:\d+$/.test(id));
+  if (assessment.decision === 'repair' && (!assessment.blocker.trim() || !assessment.nextAction.trim() || !used.has(commitmentId) || !engineeringCited)) {
+    throw new Error('A repair requires a blocker, a next action, and exact citations from both the selected commitment and engineering evidence.');
   }
   return assessment;
 }
@@ -126,12 +137,18 @@ export function planActions(run: Run): Action[] {
   const sources = [...new Set(a.citations.map(c => run.snapshot!.evidence.find(e => e.id === c.evidenceId)!.url))];
   const refs = sources.join('\n');
   const tag = marker(run.id);
-  const slack = slackTarget(run.targets.slackChannel, run.targets.slackThread);
-  return [
+  const actions: Action[] = [
     { id: `${run.id}:github`, provider: 'GitHub', title: 'Record the engineering handoff', target: run.targets.issueUrl, body: `Customer commitment at risk\n\n${a.summary}\n\nBlocker: ${a.blocker}\nNext action for ${run.targets.owner}: ${a.nextAction}\n\nEvidence:\n${refs}\n\n${tag}`, status: 'pending' },
-    { id: `${run.id}:notion`, provider: 'Notion', title: 'Update the delivery status paragraph', target: run.targets.notionPageUrl, body: `Delivery status: At risk\n${a.blocker}\nNext action for ${run.targets.owner}: ${a.nextAction}\n${tag}`, status: 'pending' },
-    { id: `${run.id}:slack`, provider: 'Slack', title: 'Notify the discussion with the next action', target: `https://app.slack.com/archives/${slack.channelId}/p${slack.timestamp.replace('.', '')}`, body: slackText(`Commitment marked at risk; engineering handoff recorded.\n\n${a.summary}\n\nOwner: ${run.targets.owner}\nNext action: ${a.nextAction}\nThe engineering blocker remains open.\n\nEvidence:\n${refs}\n\n${tag}`), status: 'pending' },
   ];
+  if (run.targets.notionPageUrl) {
+    if (!run.snapshot.notionStatus) throw new Error('The selected Notion status was not collected.');
+    actions.push({ id: `${run.id}:notion`, provider: 'Notion', title: 'Update the delivery status paragraph', target: run.targets.notionPageUrl, body: `Delivery status: At risk\n${a.blocker}\nNext action for ${run.targets.owner}: ${a.nextAction}\n${tag}`, status: 'pending' });
+  }
+  if (run.targets.slackChannel) {
+    const lead = run.targets.notionPageUrl ? 'Commitment marked at risk; engineering handoff recorded.' : 'Engineering handoff recorded for a commitment at risk.';
+    actions.push({ id: `${run.id}:slack`, provider: 'Slack', title: 'Notify the discussion with the next action', target: slackMessageUrl(run.targets.slackChannel, run.targets.slackThread), body: slackText(`${lead}\n\n${a.summary}\n\nOwner: ${run.targets.owner}\nNext action: ${a.nextAction}\nThe engineering blocker remains open.\n\nEvidence:\n${refs}\n\n${tag}`), status: 'pending' });
+  }
+  return actions;
 }
 export function planHash(run: Run) {
   return digest({ targets: run.targets, evidence: run.snapshot, assessment: run.assessment, actions: run.actions.map(({ id, provider, target, body }) => ({ id, provider, target, body })) });

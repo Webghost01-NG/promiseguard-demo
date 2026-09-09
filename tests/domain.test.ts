@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { githubIssue, notionId, slackTarget, slackMessageUrl, validateAssessment, planActions, planHash, slackText, type Run, type Evidence } from '../server/domain.ts';
+import { githubIssue, notionId, slackTarget, slackMessageUrl, validateTargets, validateAssessment, planActions, planHash, slackText, type Run, type Evidence } from '../server/domain.ts';
 import { Store } from '../server/store.ts';
 import { requiresReconciliation } from '../server/coordinator.ts';
 
@@ -103,4 +103,74 @@ test('Slack canonical links round-trip all six fractional digits', () => {
     const url = slackMessageUrl('CUNITTEST', timestamp);
     assert.equal(slackTarget('CUNITTEST', url).timestamp, timestamp);
   }
+});
+
+function githubOnlyFixture(): Run {
+  const run = fixture();
+  run.targets = { ...run.targets, notionPageUrl: '', slackChannel: '', slackThread: '', commitmentIssueUrl: 'https://github.com/fixture/repo/issues/2' };
+  run.snapshot!.evidence = [
+    { id: 'github:commitment', provider: 'GitHub', title: 'Unit commitment', text: 'The release depends on the linked issue.', url: run.targets.commitmentIssueUrl! },
+    evidence[1],
+  ];
+  delete run.snapshot!.notionStatus;
+  delete run.snapshot!.slackActor;
+  run.assessment!.citations = run.snapshot!.evidence.map(e => ({ evidenceId: e.id, quote: e.text }));
+  return run;
+}
+test('GitHub-only targets require neither Notion nor Slack fields', () => {
+  const { notionPageUrl, slackChannel, slackThread, ...input } = githubOnlyFixture().targets;
+  const targets = validateTargets(input);
+  assert.equal(targets.notionPageUrl, '');
+  assert.equal(targets.slackChannel, '');
+  assert.equal(targets.slackThread, '');
+});
+test('the commitment source must be explicit, unique, and separate from engineering', () => {
+  const targets = githubOnlyFixture().targets;
+  assert.throws(() => validateTargets({ ...targets, commitmentIssueUrl: '' }));
+  assert.throws(() => validateTargets({ ...targets, commitmentIssueUrl: targets.issueUrl }));
+  assert.throws(() => validateTargets({ ...targets, notionPageUrl: fixture().targets.notionPageUrl }));
+  assert.throws(() => validateTargets({ ...targets, commitmentIssueUrl: 'https://evil.example/issues/2' }));
+});
+test('partial Slack selection is rejected rather than silently ignored', () => {
+  const targets = githubOnlyFixture().targets;
+  assert.throws(() => validateTargets({ ...targets, slackChannel: 'CUNITTEST' }));
+  assert.throws(() => validateTargets({ ...targets, slackThread: '1700000000.000001' }));
+});
+test('GitHub-only repair needs both commitment and engineering citations', () => {
+  const run = githubOnlyFixture();
+  assert.deepEqual(validateAssessment(run.assessment, run.snapshot!.evidence), run.assessment);
+  for (const citation of run.assessment!.citations) assert.throws(() => validateAssessment({ ...run.assessment, citations: [citation] }, run.snapshot!.evidence));
+});
+test('Notion status alone cannot substitute for the documented commitment', () => {
+  const run = fixture();
+  const status = { id: 'notion:status', provider: 'Notion', title: 'Unit status', text: 'Ready', url: run.targets.notionPageUrl };
+  assert.throws(() => validateAssessment({ ...run.assessment, citations: [{ evidenceId: status.id, quote: status.text }, run.assessment!.citations[1]] }, [...evidence, status]));
+});
+test('all four integration combinations plan only their selected destinations', () => {
+  for (const notion of [false, true]) for (const slack of [false, true]) {
+    const run = notion ? fixture() : githubOnlyFixture();
+    run.targets.slackChannel = slack ? 'CUNITTEST' : '';
+    run.targets.slackThread = slack ? '1700000000.000001' : '';
+    validateTargets(run.targets);
+    const actions = planActions(run);
+    assert.deepEqual(actions.map(a => a.provider), ['GitHub', ...(notion ? ['Notion'] : []), ...(slack ? ['Slack'] : [])]);
+    if (slack && !notion) assert.doesNotMatch(actions.at(-1)!.body, /Commitment marked at risk;/);
+  }
+});
+test('changing the integration selection invalidates approval', () => {
+  const run = fixture(); run.actions = planActions(run);
+  const hash = planHash(run);
+  run.targets.slackChannel = ''; run.targets.slackThread = '';
+  assert.notEqual(planHash(run), hash);
+});
+test('GitHub-only recovery preserves the single action without inventing other destinations', () => {
+  const run = githubOnlyFixture(); run.actions = planActions(run); run.status = 'executing'; run.actions[0].status = 'in_flight';
+  const store = new Store(':memory:'); store.save(run); store.recover();
+  const recovered = store.get(run.id);
+  assert.equal(recovered.status, 'partial');
+  assert.equal(recovered.actions.length, 1);
+  assert.equal(recovered.actions[0].status, 'unknown');
+  assert.equal(recovered.snapshot!.notionStatus, undefined);
+  assert.equal(recovered.snapshot!.slackActor, undefined);
+  store.db.close();
 });

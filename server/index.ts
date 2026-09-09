@@ -47,9 +47,11 @@ const server = createServer(async (req, res) => {
       }
       if (req.method === 'POST' && url.pathname === '/api/analyze') {
         const targets = validateTargets(await body(req));
-        const thread = await providers.checkSlackThread(targets.slackChannel, targets.slackThread);
-        targets.slackChannel = thread.channelId;
-        targets.slackThread = thread.url;
+        if (targets.slackChannel) {
+          const thread = await providers.checkSlackThread(targets.slackChannel, targets.slackThread);
+          targets.slackChannel = thread.channelId;
+          targets.slackThread = thread.url;
+        }
         const run = coordinator.start(targets);
         store.setSetting('targets', targets);
         return json(res, 202, run);

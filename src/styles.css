@@ -367,3 +367,10 @@ footer { display: flex; align-items: center; gap: 25px; justify-content: space-b
   .footer-local { width: 100%; }
 }
 @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } button { transition: none; } }
+
+.source-options { border: 1px solid #c9cdbe; padding: 12px; margin: 0 0 20px; border-radius: 4px; }
+.source-options legend { font-size: 11px; padding: 0 5px; }
+.source-options label, .optional-toggle { display: flex; align-items: start; gap: 8px; font-size: 11px; line-height: 1.7; }
+.source-options label:last-child { margin-bottom: 0; }
+.source-options input, .optional-toggle input { width: 15px; height: 15px; flex-shrink: 0; margin: 2px 0 0; accent-color: var(--accent); }
+.optional-toggle { margin: 8px 0 18px; padding: 10px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); cursor: pointer; }
