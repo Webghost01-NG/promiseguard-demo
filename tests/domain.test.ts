@@ -35,6 +35,16 @@ test('an invented citation cannot authorize a repair', () => {
   assert.throws(() => validateAssessment({ ...assessment, citations: [{ evidenceId: 'missing', quote: evidence[0].text }] }, evidence));
   assert.deepEqual(validateAssessment(assessment, evidence), assessment);
 });
+test('citation verification tolerates presentation-only typography and whitespace', () => {
+  const assessment=fixture().assessment!;
+  const styled={...assessment,citations:[
+    {...assessment.citations[0],quote:'Release — blocked'},
+    {...assessment.citations[1],quote:'Acceptance\u00a0check is failing.'}
+  ]};
+  const sources=[{...evidence[0],text:'Release - blocked'},evidence[1]];
+  assert.deepEqual(validateAssessment(styled,sources),styled);
+  assert.throws(()=>validateAssessment({...styled,citations:[{...styled.citations[0],quote:'Acceptance check has passed.'},styled.citations[1]]},sources));
+});
 test('repair requires evidence from both the commitment and engineering issue', () => {
   const assessment = fixture().assessment!;
   assert.throws(() => validateAssessment({ ...assessment, citations: assessment.citations.slice(0, 1) }, evidence));
