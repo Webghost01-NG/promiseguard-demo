@@ -102,9 +102,12 @@ Gemini returns a bounded classification and exact source quotations. Code valida
 ```bash
 npm test
 npm run build
+npm run evaluate
 ```
 
 Tests cover target restrictions, evidence grounding, immutable approval content, no-action decisions, and durable restart behavior. Test data is explicitly synthetic unit-test material. The application has no mocked provider path. Live mutation tests must be approved and results reported separately from local tests.
+
+`npm run evaluate` sends 24 explicitly synthetic commitment scenarios to the configured real Gemini model. It performs no GitHub, Notion, or Slack requests and cannot schedule or apply a repair. The balanced corpus covers `repair`, `no_change`, and `clarify`, including GitHub-only workflows, three-app context, contradictory and incomplete evidence, already-accurate status, prompt injection inside untrusted records, and grounded citations. The command writes a credential-free JSON report under Git-ignored `artifacts/` and fails if an API/validation error occurs or decision accuracy is below 75%. It spaces requests five seconds apart to stay below the free-tier 15-requests-per-minute limit. Override the model, threshold, or pacing with `--model`, `--threshold`, and `--interval-ms`.
 
 ## Source layout
 
