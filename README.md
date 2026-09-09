@@ -99,7 +99,7 @@ Gemini returns a bounded classification and exact source quotations. Code valida
 
 See the [architecture and reliability brief](docs/reliability.md) for the trust boundaries, failure matrix, measured Gemini evaluation, production security controls, and known limits. The current command and live-service results are tracked in [verification status](docs/verification.md).
 
-The [two-minute judging package](docs/judging-demo.md) provides the exact demonstration script, evidence checklist, architecture frame, proof map, and provider-outage fallback.
+The [two-minute judging package](docs/judging-demo.md) provides the exact demonstration script, evidence checklist, architecture frame, proof map, and provider-outage fallback. The [production audit](docs/production-audit.md) records current security, reliability, deployment, and release-gate evidence.
 
 ## Checks
 
