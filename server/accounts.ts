@@ -34,7 +34,7 @@ export class Accounts {
   private async userRecord(name: string, password: string) {
     const normalized = name.trim().toLowerCase();
     if (!/^[a-z0-9][a-z0-9._@+-]{2,99}$/.test(normalized)) throw new Error('Use a username of 3–100 letters, numbers, or . _ @ + - characters.');
-    if (password.length < 12 || password.length > 256) throw new Error('Use a password of 12–256 characters.');
+    if (password.length < 8 || password.length > 256) throw new Error('Use a password of 8–256 characters.');
     const salt = randomBytes(16).toString('hex');
     const value = await derive(password, salt, 64) as Buffer;
     return { user: { id: randomUUID(), name: normalized }, salt, password: value.toString('hex') };

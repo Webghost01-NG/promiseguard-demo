@@ -24,6 +24,8 @@ async function accountStore(key = randomBytes(32)) {
 test('passwords are salted; sessions expire and logout revokes them', async () => {
   const {store,accounts}=await accountStore();
   try {
+    await accounts.create('eight-char-user','12345678');
+    await assert.rejects(accounts.create('seven-char-user','1234567'),/8–256/);
     await accounts.create('alice',password); await accounts.create('bobby',password);
     const rows = await store.db.all<{password:string}>('SELECT password FROM users');
     assert.notEqual(rows[0].password,rows[1].password); assert.notEqual(rows[0].password,password);
