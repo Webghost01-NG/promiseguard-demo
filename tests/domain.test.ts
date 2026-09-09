@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { githubIssue, notionId, slackTarget, slackMessageUrl, validateTargets, validateAssessment, planActions, planHash, slackText, type Run, type Evidence } from '../server/domain.ts';
 import { Store } from '../server/store.ts';
 import { requiresReconciliation } from '../server/coordinator.ts';
-import { citationCatalog, groundCitationSelection, Providers } from '../server/providers.ts';
+import { citationCatalog, groundCitationSelection, ProviderError, Providers } from '../server/providers.ts';
 
 // Explicit unit-test fixtures only. No fake provider is used by the application.
 const evidence: Evidence[] = [
@@ -77,6 +77,17 @@ test('analysis asks Gemini for catalog IDs and returns server-owned source quota
   const result = await providers.analyze(run.snapshot!, run.targets);
   assert.equal(calls, 1);
   assert.deepEqual(result.citations, evidence.map(source => ({ evidenceId: source.id, quote: source.text })));
+});
+test('analysis does not retry provider failures as though they were invalid model output', async () => {
+  const providers = new Providers(() => ({}));
+  let calls = 0;
+  providers.request = async () => {
+    calls++;
+    throw new ProviderError('Gemini: RESOURCE_EXHAUSTED. Retry after the provider rate-limit window.');
+  };
+  const run = fixture();
+  await assert.rejects(() => providers.analyze(run.snapshot!, run.targets), /RESOURCE_EXHAUSTED/);
+  assert.equal(calls, 1);
 });
 test('repair requires evidence from both the commitment and engineering issue', () => {
   const assessment = fixture().assessment!;
