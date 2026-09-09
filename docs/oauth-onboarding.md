@@ -19,13 +19,11 @@ Users should sign in, connect GitHub, select repositories, and start a GitHub-on
 - No automatic account linking by email. A provider identity always resolves to its existing account or creates a new one.
 - Social sign-in access tokens are not reused as workflow credentials. GitHub workflow access and Slack bot access are connected separately.
 
-## Workflow OAuth remaining
+## Workflow connections
 
-1. Replace manual GitHub workflow tokens with a GitHub App installation and repository selection.
-2. Add separate Slack bot installation OAuth and Notion public connection OAuth.
-3. Store installation identities and encrypted refresh metadata per user.
-4. Support expiry/refresh, disconnection and revoked access. Recheck identity during approval/recovery.
-5. Exercise installation, cancellation, expiry and reconnect against real providers.
+GitHub App installation, Slack bot OAuth, and Notion public OAuth are available from **Connections**. Each grant belongs to the signed-in PromiseGuard account. GitHub lets the installer select repositories; Notion lets the installer select pages; Slack installs into the workspace selected on Slack's authorization screen.
+
+GitHub and Gemini are required for analysis. Notion and Slack are optional and only need to be connected when a run uses them. Provider cancellation returns the user to **Connections** without replacing an existing grant.
 
 The deployed URL and registered app credentials are prerequisites for working redirects. Missing providers are shown as setup pending while configured providers remain usable. Legacy run ownership is assigned only by the explicit terminal import command.
 
