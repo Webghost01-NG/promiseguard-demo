@@ -21,7 +21,7 @@ function richText(parts: Json[] = []) { return parts.map(part => part.plain_text
 function blockText(block: Json) { return richText(block[block.type]?.rich_text); }
 
 export class Providers {
-  constructor(public getCredentials: () => Record<string,string> = credentials) {}
+  constructor(public getCredentials: () => Record<string,string> = credentials, private getGithubToken?:()=>Promise<string>) {}
   redact(message: string) {
     try { return redact(message, this.getCredentials()); }
     catch { return 'Connection credentials could not be read. Restore the credential key and database together.'; }
@@ -33,7 +33,7 @@ export class Providers {
       Slack: { host: 'https://slack.com/api', key: 'SLACK_BOT_TOKEN' },
       Gemini: { host: 'https://generativelanguage.googleapis.com/v1beta', key: 'GEMINI_API_KEY' },
     }[provider];
-    const token = this.getCredentials()[config.key];
+    const token = provider === 'GitHub' && this.getGithubToken ? await this.getGithubToken() : this.getCredentials()[config.key];
     if (!token) throw new ProviderError(provider === 'Gemini' ? 'Ask the server operator to configure GEMINI_API_KEY.' : `Connect ${provider} in Connections and check access again.`);
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (provider === 'Gemini') headers['x-goog-api-key'] = token;

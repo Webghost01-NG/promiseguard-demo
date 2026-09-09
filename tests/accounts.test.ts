@@ -65,6 +65,21 @@ test('social identities create one stable account and OAuth state is single use'
     assert.deepEqual(rows,[{provider:'github',subject:'12345',email:'alice@example.test'},{provider:'google',subject:'12345',email:'alice@example.test'}]);
   } finally {store.db.close();}
 });
+test('workflow OAuth state is bound to one active user session and phase', async () => {
+  const store=new Store(':memory:');const accounts=new Accounts(store.db,randomBytes(32));
+  try {
+    const alice=await accounts.create('alice',password),bob=await accounts.create('bobby',password);
+    const a=await accounts.login(alice.name,password),b=await accounts.login(bob.name,password);
+    const install=accounts.beginConnectionOauth(alice.id,a.token,'github-install');
+    assert.equal(accounts.consumeConnectionOauth('github-authorize',install),undefined);
+    const next=accounts.beginConnectionOauth(alice.id,a.token,'github-install');
+    const saved=accounts.consumeConnectionOauth('github-install',next)!;
+    assert.equal(saved.user_id,alice.id);assert.notEqual(saved.session_hash,b.token);assert.equal(accounts.consumeConnectionOauth('github-install',next),undefined);
+    const revoked=accounts.beginConnectionOauth(alice.id,a.token,'github-install');accounts.logout(a.token);
+    assert.equal(accounts.consumeConnectionOauth('github-install',revoked),undefined);
+    assert.throws(()=>accounts.beginConnectionOauth(alice.id,b.token,'github-install'),/Sign in again/);
+  } finally {store.db.close();}
+});
 test('encrypted tokens cannot be read by another user or moved between owners', () => {
   const store=new Store(':memory:');const accounts=new Accounts(store.db,randomBytes(32));
   try {

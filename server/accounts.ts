@@ -17,7 +17,8 @@ export class Accounts {
       CREATE TABLE IF NOT EXISTS login_attempts (name TEXT PRIMARY KEY, count INTEGER NOT NULL, expires INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS signup_attempts (source TEXT PRIMARY KEY, count INTEGER NOT NULL, expires INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS identities (provider TEXT NOT NULL, subject TEXT NOT NULL, user_id TEXT NOT NULL, email TEXT, PRIMARY KEY(provider, subject));
-      CREATE TABLE IF NOT EXISTS oauth_states (hash TEXT PRIMARY KEY, provider TEXT NOT NULL, verifier TEXT NOT NULL, nonce TEXT NOT NULL, expires INTEGER NOT NULL);`);
+      CREATE TABLE IF NOT EXISTS oauth_states (hash TEXT PRIMARY KEY, provider TEXT NOT NULL, verifier TEXT NOT NULL, nonce TEXT NOT NULL, expires INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS connection_oauth_states (hash TEXT PRIMARY KEY, phase TEXT NOT NULL, user_id TEXT NOT NULL, session_hash TEXT NOT NULL, verifier TEXT NOT NULL, installation_id TEXT NOT NULL, expires INTEGER NOT NULL);`);
   }
   async create(name: string, password: string): Promise<User> {
     name = name.trim().toLowerCase();
@@ -94,6 +95,27 @@ export class Accounts {
       this.db.exec('COMMIT');
       return row && row.expires > Date.now() ? {verifier:row.verifier, nonce:row.nonce} : undefined;
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
+  }
+  beginConnectionOauth(userId:string, sessionToken:string, phase:'github-install'|'github-authorize', verifier='', installationId='', sessionHash=hash(sessionToken)) {
+    const active=this.db.prepare('SELECT 1 FROM sessions WHERE hash=? AND user_id=? AND expires>?').get(sessionHash,userId,Date.now());
+    if(!active) throw new Error('Sign in again before connecting GitHub.');
+    const state=randomBytes(32).toString('hex');
+    this.db.prepare('DELETE FROM connection_oauth_states WHERE expires<=?').run(Date.now());
+    this.db.prepare('INSERT INTO connection_oauth_states VALUES (?,?,?,?,?,?,?)').run(hash(state),phase,userId,sessionHash,verifier,installationId,Date.now()+10*60000);
+    return state;
+  }
+  consumeConnectionOauth(phase:'github-install'|'github-authorize', state:string) {
+    if(!/^[a-f0-9]{64}$/.test(state)) return undefined;
+    const stateHash=hash(state);
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const row=this.db.prepare(`SELECT connection_oauth_states.user_id,session_hash,verifier,installation_id,connection_oauth_states.expires
+        FROM connection_oauth_states JOIN sessions ON sessions.hash=session_hash AND sessions.user_id=connection_oauth_states.user_id
+        WHERE connection_oauth_states.hash=? AND phase=? AND connection_oauth_states.expires>? AND sessions.expires>?`).get(stateHash,phase,Date.now(),Date.now()) as {user_id:string;session_hash:string;verifier:string;installation_id:string;expires:number}|undefined;
+      this.db.prepare('DELETE FROM connection_oauth_states WHERE hash=?').run(stateHash);
+      this.db.exec('COMMIT');
+      return row;
+    } catch(error){this.db.exec('ROLLBACK');throw error;}
   }
   socialLogin(provider: IdentityProvider, subject: string, preferredName: string, email = '') {
     if (!subject || subject.length > 500) throw new Error('Invalid provider identity.');

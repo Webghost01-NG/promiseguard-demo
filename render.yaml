@@ -24,6 +24,12 @@ services:
         sync: false
       - key: GITHUB_CLIENT_SECRET
         sync: false
+      - key: GITHUB_APP_CLIENT_ID
+        sync: false
+      - key: GITHUB_APP_CLIENT_SECRET
+        sync: false
+      - key: GITHUB_APP_SLUG
+        sync: false
       - key: SLACK_CLIENT_ID
         sync: false
       - key: SLACK_CLIENT_SECRET
