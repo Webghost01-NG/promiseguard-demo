@@ -37,7 +37,7 @@ Users can create a password account from the sign-in page. Registration is rate 
 
 GitHub sign-in requests identity scopes only; users still connect a workflow token in Connections. Slack identity sign-in remains separate from the Slack bot installation because Slack does not allow identity and bot scopes in one OAuth flow.
 
-For repository-scoped workflow access, configure `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, and `GITHUB_APP_SLUG`. Register `/api/connections/github/setup` as the GitHub App setup URL and `/api/connections/github/callback` as its user authorization callback. The install flow lets each user choose repositories, then verifies that installation with an expiring, refreshable GitHub App user token. Manual tokens remain a local/test fallback.
+For repository-scoped workflow access, configure `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, and `GITHUB_APP_SLUG`. Register `/api/connections/github/setup` as the GitHub App setup URL and `/api/connections/github/callback` as its user authorization callback. The install flow lets each user choose repositories, then verifies that installation with an expiring, refreshable GitHub App user token. Connected users can reauthorize without changing repository selection, update installation access separately, or disconnect and revoke the GitHub authorization. Manual tokens remain a local/test fallback.
 
 ## Existing local workspace
 
