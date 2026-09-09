@@ -9,6 +9,7 @@ import { Providers, credentials } from './providers.ts';
 import { Coordinator } from './coordinator.ts';
 import { validateTargets } from './domain.ts';
 import { buildGrant, challenge, disconnectGithub, exchange, githubAppConfig, githubToken, grantMeta, verifier } from './github-connection.ts';
+import { disconnectWorkflow, exchangeWorkflowCode, workflowAuthorizeUrl, workflowGrantMeta, workflowOauthAvailable, workflowOauthConfig, workflowToken, type WorkflowProvider } from './workflow-oauth.ts';
 
 process.umask(0o077);
 
@@ -43,7 +44,10 @@ export function createApp(path = 'data/promiseguard.sqlite', key?: Buffer, port 
     let value = contexts.get(owner);
     if (!value) {
       const store = new Store(path, owner);
-      const providers = new Providers(() => ({GITHUB_TOKEN:'', NOTION_TOKEN:'', SLACK_BOT_TOKEN:'', ...accounts.credentials(owner), GEMINI_API_KEY:credentials().GEMINI_API_KEY}),()=>githubToken(accounts,owner));
+      const providers = new Providers(
+        () => ({GITHUB_TOKEN:'', NOTION_TOKEN:'', SLACK_BOT_TOKEN:'', ...accounts.credentials(owner), GEMINI_API_KEY:credentials().GEMINI_API_KEY}),
+        key => key === 'GITHUB_TOKEN' ? githubToken(accounts,owner) : key === 'NOTION_TOKEN' ? workflowToken(accounts,owner,'notion') : workflowToken(accounts,owner,'slack')
+      );
       value = {store, providers, coordinator:new Coordinator(store, providers)};
       contexts.set(owner, value);
     }
@@ -63,7 +67,7 @@ export function createApp(path = 'data/promiseguard.sqlite', key?: Buffer, port 
     if (!allowedHosts.includes(req.headers.host || '')) return json(res, 403, { error: 'Unexpected request host.' });
     if (req.headers.origin && !allowedOrigins.includes(req.headers.origin)) return json(res, 403, { error: 'Cross-origin requests are not allowed.' });
     const requestPath = new URL(req.url || '/', requestOrigin).pathname;
-    const oauthCallback = /^\/api\/auth\/(google|github|slack)\/callback$/.test(requestPath) || /^\/api\/connections\/github\/(setup|callback)$/.test(requestPath);
+    const oauthCallback = /^\/api\/auth\/(google|github|slack)\/callback$/.test(requestPath) || /^\/api\/connections\/(github\/(setup|callback)|(slack|notion)\/callback)$/.test(requestPath);
     const publicNavigation = req.method === 'GET'
       && !requestPath.startsWith('/api/')
       && req.headers['sec-fetch-mode'] === 'navigate'
@@ -128,6 +132,19 @@ export function createApp(path = 'data/promiseguard.sqlite', key?: Buffer, port 
             res.setHeader('Set-Cookie',`pg_connect_oauth=; HttpOnly; SameSite=Lax; Path=/api/connections/github; Max-Age=0${publicOrigin?'; Secure':''}`);res.writeHead(302,{Location:'/?connection=github','Cache-Control':'no-store'});return res.end();
           }catch(error){res.setHeader('Set-Cookie',`pg_connect_oauth=; HttpOnly; SameSite=Lax; Path=/api/connections/github; Max-Age=0${publicOrigin?'; Secure':''}`);res.writeHead(302,{Location:`/?connection_error=${encodeURIComponent((error as Error).message.slice(0,300))}`});return res.end();}
         }
+        const workflowRoute=url.pathname.match(/^\/api\/connections\/(slack|notion)\/(callback)$/);
+        if(req.method==='GET'&&workflowRoute){
+          const provider=workflowRoute[1] as WorkflowProvider;
+          try{
+            const state=url.searchParams.get('state')||'';if(!state||state!==connectionCookie)throw new Error(`The ${provider === 'slack' ? 'Slack' : 'Notion'} connection did not match this browser.`);
+            const saved=accounts.consumeConnectionOauth(`${provider}-connect`,state);if(!saved)throw new Error(`The ${provider === 'slack' ? 'Slack' : 'Notion'} connection expired or was already used.`);
+            if(url.searchParams.get('error'))throw new Error(`${provider === 'slack' ? 'Slack' : 'Notion'} authorization was cancelled. Your existing connection was unchanged.`);
+            const redirectUri=`${requestOrigin}/api/connections/${provider}/callback`;
+            const grant=await exchangeWorkflowCode(provider,url.searchParams.get('code')||'',redirectUri,workflowOauthConfig()[provider]);
+            accounts.setConnection(saved.user_id,provider==='slack'?'SLACK_BOT_TOKEN':'NOTION_TOKEN',JSON.stringify(grant));
+            res.setHeader('Set-Cookie',`pg_connect_oauth=; HttpOnly; SameSite=Lax; Path=/api/connections; Max-Age=0${publicOrigin?'; Secure':''}`);res.writeHead(302,{Location:`/?connection=${provider}`,'Cache-Control':'no-store'});return res.end();
+          }catch(error){res.setHeader('Set-Cookie',`pg_connect_oauth=; HttpOnly; SameSite=Lax; Path=/api/connections; Max-Age=0${publicOrigin?'; Secure':''}`);res.writeHead(302,{Location:`/?connection_error=${encodeURIComponent((error as Error).message.slice(0,300))}`});return res.end();}
+        }
         if (req.method !== 'GET' && (!allowedOrigins.includes(req.headers.origin || '') || !req.headers['content-type']?.startsWith('application/json'))) return json(res, 403, {error:'Same-origin JSON request required.'});
         if (req.method === 'POST' && url.pathname === '/api/login') {
           const input = await body(req);
@@ -163,6 +180,15 @@ export function createApp(path = 'data/promiseguard.sqlite', key?: Buffer, port 
           res.setHeader('Set-Cookie',`pg_connect_oauth=${state}; HttpOnly; SameSite=Lax; Path=/api/connections/github; Max-Age=600${publicOrigin?'; Secure':''}`);
           res.writeHead(302,{Location:`https://github.com/apps/${encodeURIComponent(githubConfig.slug)}/installations/new?state=${state}`,'Cache-Control':'no-store'});return res.end();
         }
+        const workflowStart=url.pathname.match(/^\/api\/connections\/(slack|notion)\/start$/);
+        if(req.method==='GET'&&workflowStart){
+          const provider=workflowStart[1] as WorkflowProvider;const config=workflowOauthConfig()[provider];
+          if(!config.clientId||!config.clientSecret)throw new Error(`${provider === 'slack' ? 'Slack' : 'Notion'} connection OAuth is not configured.`);
+          const state=accounts.beginConnectionOauth(user.id,token,`${provider}-connect`);
+          const redirectUri=`${requestOrigin}/api/connections/${provider}/callback`;
+          res.setHeader('Set-Cookie',`pg_connect_oauth=${state}; HttpOnly; SameSite=Lax; Path=/api/connections; Max-Age=600${publicOrigin?'; Secure':''}`);
+          res.writeHead(302,{Location:workflowAuthorizeUrl(provider,state,redirectUri,config).href,'Cache-Control':'no-store'});return res.end();
+        }
         if (req.method !== 'GET' && req.headers['x-promiseguard-session'] !== user.csrf) return json(res, 403, {error:'Refresh the page before making changes.'});
         if (req.method === 'POST' && url.pathname === '/api/logout') {
           accounts.logout(token);
@@ -183,7 +209,13 @@ export function createApp(path = 'data/promiseguard.sqlite', key?: Buffer, port 
           await disconnectGithub(accounts,user.id,githubConfig);
           return json(res,200,{ok:true});
         }
-        if (req.method === 'GET' && url.pathname === '/api/bootstrap') {const creds=providers.getCredentials();return json(res, 200, { session, user: {id:user.id,name:user.name}, configured: Object.fromEntries(Object.entries(creds).map(([key, value]) => [key, Boolean(value)])), githubConnection:grantMeta(creds.GITHUB_TOKEN), targets: store.setting('targets'), runs: store.list() });}
+        const workflowDisconnect=url.pathname.match(/^\/api\/connections\/(slack|notion)\/disconnect$/);
+        if(req.method==='POST'&&workflowDisconnect){
+          if(coordinator.busy||store.list().some(r=>['review','partial'].includes(r.status)))throw new Error('Finish or dismiss the current run before changing connections.');
+          const provider=workflowDisconnect[1] as WorkflowProvider;await disconnectWorkflow(accounts,user.id,provider,workflowOauthConfig()[provider]);
+          return json(res,200,{ok:true});
+        }
+        if (req.method === 'GET' && url.pathname === '/api/bootstrap') {const creds=providers.getCredentials();return json(res, 200, { session, user: {id:user.id,name:user.name}, configured: Object.fromEntries(Object.entries(creds).map(([key, value]) => [key, Boolean(value)])), githubConnection:grantMeta(creds.GITHUB_TOKEN), workflowOauth:workflowOauthAvailable(), workflowConnections:{slack:workflowGrantMeta(creds.SLACK_BOT_TOKEN),notion:workflowGrantMeta(creds.NOTION_TOKEN)}, targets: store.setting('targets'), runs: store.list() });}
         if (req.method === 'GET' && url.pathname === '/api/runs') {
           if (req.headers['x-promiseguard-session'] !== session) return json(res, 403, {error:'Refresh after switching accounts.'});
           return json(res, 200, store.list());
