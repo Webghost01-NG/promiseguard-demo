@@ -144,10 +144,10 @@ test('public runtime requires an exact HTTPS origin and secure session cookie', 
   await accounts.create('public-user',password);
   await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
   const address=server.address() as {port:number};
-  const request=(path:string,method='GET',data?:unknown,host='promiseguard.example',origin='https://promiseguard.example')=>new Promise<{status:number;headers:Record<string,string|string[]|undefined>;body:any}>((resolve,reject)=>{
+  const request=(path:string,method='GET',data?:unknown,host='promiseguard.example',origin='https://promiseguard.example',extraHeaders:Record<string,string>={})=>new Promise<{status:number;headers:Record<string,string|string[]|undefined>;body:any}>((resolve,reject)=>{
     const payload=data === undefined ? '' : JSON.stringify(data);
-    const req=httpRequest({hostname:'127.0.0.1',port:address.port,path,method,headers:{Host:host,Origin:origin,...(payload?{'Content-Type':'application/json','Content-Length':Buffer.byteLength(payload)}:{})}},res=>{
-      let raw='';res.setEncoding('utf8');res.on('data',chunk=>raw+=chunk);res.on('end',()=>resolve({status:res.statusCode||0,headers:res.headers,body:JSON.parse(raw)}));
+    const req=httpRequest({hostname:'127.0.0.1',port:address.port,path,method,headers:{Host:host,Origin:origin,...(payload?{'Content-Type':'application/json','Content-Length':Buffer.byteLength(payload)}:{}),...extraHeaders}},res=>{
+      let raw='';res.setEncoding('utf8');res.on('data',chunk=>raw+=chunk);res.on('end',()=>{let parsed;try{parsed=JSON.parse(raw);}catch{parsed=raw;}resolve({status:res.statusCode||0,headers:res.headers,body:parsed});});
     });
     req.on('error',reject);if(payload)req.write(payload);req.end();
   });
@@ -161,6 +161,9 @@ test('public runtime requires an exact HTTPS origin and secure session cookie', 
     const cookies=login.headers['set-cookie'];
     assert.equal((Array.isArray(cookies) ? cookies : [cookies || '']).some(value=>value.includes('; Secure')),true);
     assert.equal((await request('/api/login','POST',{name:'public-user',password},'promiseguard.example','https://evil.example')).status,403);
+    const oauthReturn=await request('/missing-after-oauth','GET',undefined,'promiseguard.example','',{'Sec-Fetch-Site':'cross-site','Sec-Fetch-Mode':'navigate','Sec-Fetch-Dest':'document'});
+    assert.equal(oauthReturn.status,404);
+    assert.equal((await request('/api/health','GET',undefined,'promiseguard.example','',{'Sec-Fetch-Site':'cross-site','Sec-Fetch-Mode':'navigate','Sec-Fetch-Dest':'document'})).status,403);
   } finally {
     await new Promise<void>(resolve=>server.close(()=>resolve()));
     rmSync(dir,{recursive:true,force:true});

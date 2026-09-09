@@ -61,8 +61,13 @@ export function createApp(path = 'data/promiseguard.sqlite', key?: Buffer, port 
     if (publicOrigin) res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
     if (!allowedHosts.includes(req.headers.host || '')) return json(res, 403, { error: 'Unexpected request host.' });
     if (req.headers.origin && !allowedOrigins.includes(req.headers.origin)) return json(res, 403, { error: 'Cross-origin requests are not allowed.' });
-    const oauthCallback = /^\/api\/auth\/(google|github|slack)\/callback$/.test((req.url || '').split('?')[0]);
-    if (req.headers['sec-fetch-site'] === 'cross-site' && !oauthCallback) return json(res, 403, { error: 'Cross-site requests are not allowed.' });
+    const requestPath = new URL(req.url || '/', requestOrigin).pathname;
+    const oauthCallback = /^\/api\/auth\/(google|github|slack)\/callback$/.test(requestPath);
+    const publicNavigation = req.method === 'GET'
+      && !requestPath.startsWith('/api/')
+      && req.headers['sec-fetch-mode'] === 'navigate'
+      && req.headers['sec-fetch-dest'] === 'document';
+    if (req.headers['sec-fetch-site'] === 'cross-site' && !oauthCallback && !publicNavigation) return json(res, 403, { error: 'Cross-site requests are not allowed.' });
     try {
       const url = new URL(req.url || '/', publicOrigin || `http://127.0.0.1:${activePort}`);
       if (url.pathname.startsWith('/api/')) {
