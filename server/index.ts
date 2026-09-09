@@ -143,8 +143,8 @@ export function createApp(path = 'data/promiseguard.sqlite', key?: Buffer, port 
             const redirectUri=provider==='slack'?`${requestOrigin}/api/auth/slack/callback/connection`:`${requestOrigin}/api/connections/notion/callback`;
             const grant=await exchangeWorkflowCode(provider,url.searchParams.get('code')||'',redirectUri,workflowOauthConfig()[provider]);
             accounts.setConnection(saved.user_id,provider==='slack'?'SLACK_BOT_TOKEN':'NOTION_TOKEN',JSON.stringify(grant));
-            res.setHeader('Set-Cookie',`pg_connect_oauth=; HttpOnly; SameSite=Lax; Path=/api/connections; Max-Age=0${publicOrigin?'; Secure':''}`);res.writeHead(302,{Location:`/?connection=${provider}`,'Cache-Control':'no-store'});return res.end();
-          }catch(error){res.setHeader('Set-Cookie',`pg_connect_oauth=; HttpOnly; SameSite=Lax; Path=/api/connections; Max-Age=0${publicOrigin?'; Secure':''}`);res.writeHead(302,{Location:`/?connection_error=${encodeURIComponent((error as Error).message.slice(0,300))}`});return res.end();}
+            res.setHeader('Set-Cookie',`pg_connect_oauth=; HttpOnly; SameSite=Lax; Path=/api; Max-Age=0${publicOrigin?'; Secure':''}`);res.writeHead(302,{Location:`/?connection=${provider}`,'Cache-Control':'no-store'});return res.end();
+          }catch(error){res.setHeader('Set-Cookie',`pg_connect_oauth=; HttpOnly; SameSite=Lax; Path=/api; Max-Age=0${publicOrigin?'; Secure':''}`);res.writeHead(302,{Location:`/?connection_error=${encodeURIComponent((error as Error).message.slice(0,300))}`});return res.end();}
         }
         if (req.method !== 'GET' && (!allowedOrigins.includes(req.headers.origin || '') || !req.headers['content-type']?.startsWith('application/json'))) return json(res, 403, {error:'Same-origin JSON request required.'});
         if (req.method === 'POST' && url.pathname === '/api/login') {
@@ -187,7 +187,7 @@ export function createApp(path = 'data/promiseguard.sqlite', key?: Buffer, port 
           if(!config.clientId||!config.clientSecret)throw new Error(`${provider === 'slack' ? 'Slack' : 'Notion'} connection OAuth is not configured.`);
           const state=accounts.beginConnectionOauth(user.id,token,`${provider}-connect`);
           const redirectUri=provider==='slack'?`${requestOrigin}/api/auth/slack/callback/connection`:`${requestOrigin}/api/connections/notion/callback`;
-          res.setHeader('Set-Cookie',`pg_connect_oauth=${state}; HttpOnly; SameSite=Lax; Path=/api/connections; Max-Age=600${publicOrigin?'; Secure':''}`);
+          res.setHeader('Set-Cookie',`pg_connect_oauth=${state}; HttpOnly; SameSite=Lax; Path=/api; Max-Age=600${publicOrigin?'; Secure':''}`);
           res.writeHead(302,{Location:workflowAuthorizeUrl(provider,state,redirectUri,config).href,'Cache-Control':'no-store'});return res.end();
         }
         if (req.method !== 'GET' && req.headers['x-promiseguard-session'] !== user.csrf) return json(res, 403, {error:'Refresh the page before making changes.'});
