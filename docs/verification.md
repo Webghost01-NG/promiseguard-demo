@@ -2,7 +2,7 @@
 
 ## Current checks
 
-- **32 local tests pass.** Coverage includes bounded targets, source quotations, approval-plan identity, SQLite recovery, unknown-write classification, Slack timestamp precision, parent-thread query handling, mismatched channels, and malformed copied links.
+- **33 local tests pass.** Coverage includes bounded targets, source quotations, approval-plan identity, SQLite recovery, unknown-write classification, Slack timestamp precision, parent-thread query handling, mismatched channels, malformed copied links, and exact-origin public runtime checks.
 - **TypeScript and production build pass.** Production dependency audit reports no known vulnerabilities.
 - **Optional integration UI:** all four combinations passed at 1440, 768, 390 and 320 pixels (16 checks), without browser errors or horizontal overflow.
 - **Earlier UI checks:** 35 viewport checks passed during the redesign. The Slack fix additionally passed browser checks at 1440, 768, 390, and 320 pixels, including actionable errors, conversion to a readable message link, and clearing an outdated success indicator after editing. No browser errors or horizontal overflow were observed.
@@ -19,6 +19,8 @@ Local tests verify password hashing, session expiry/revocation, sign-in rate lim
 Real browser sign-in/out and separate-account token storage passed against a temporary local test server. Sign-in, workspace and connections passed at 1440, 768, 390 and 320 pixels (12 checks), without page errors or horizontal overflow. No external provider calls were made for these account tests.
 
 These checks use synthetic local accounts and SQLite fixtures. They do not constitute a public-hosting security audit or provider OAuth verification. Provider tokens remain manually connected until OAuth is implemented.
+
+The deployment test verifies an exact HTTPS host/origin, HSTS, Secure cookies, public health checks, cross-origin rejection and nested persistent-data paths. The Render Blueprint itself has not been deployed from this environment because no Render account or API credential is connected.
 
 ## Demonstration provenance
 

@@ -1,0 +1,22 @@
+# yaml-language-server: $schema=https://render.com/schema/render.yaml.json
+services:
+  - type: web
+    name: promiseguard
+    runtime: node
+    plan: 0.5c-512mb
+    numInstances: 1
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    maxShutdownDelaySeconds: 60
+    envVars:
+      - key: NODE_VERSION
+        value: 22.23.1
+      - key: PROMISEGUARD_DATA_DIR
+        value: /opt/render/project/src/data
+      - key: GEMINI_API_KEY
+        sync: false
+    disk:
+      name: promiseguard-data
+      mountPath: /opt/render/project/src/data
+      sizeGB: 1

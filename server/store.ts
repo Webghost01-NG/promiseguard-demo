@@ -1,11 +1,12 @@
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
 import type { Run } from './domain.ts';
 
 export class Store {
   db: DatabaseSync;
   constructor(path = 'data/promiseguard.sqlite', public readonly owner = 'local') {
-    if (path !== ':memory:') mkdirSync('data', { recursive: true, mode: 0o700 });
+    if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     this.db = new DatabaseSync(path);
     this.db.exec('PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS runs (id TEXT PRIMARY KEY, payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, payload TEXT NOT NULL);');
     if (!(this.db.prepare('PRAGMA table_info(runs)').all() as {name:string}[]).some(c => c.name === 'owner')) this.db.exec("ALTER TABLE runs ADD COLUMN owner TEXT NOT NULL DEFAULT 'local'");

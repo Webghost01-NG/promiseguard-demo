@@ -19,7 +19,7 @@ npm run build
 npm start
 ```
 
-Open http://127.0.0.1:4317. The server binds only to loopback. Rebuild after editing frontend files; restart after server edits. This release remains loopback-only; do not expose it publicly.
+Open http://127.0.0.1:4317. Without public deployment variables, the server binds only to loopback. Rebuild after editing frontend files; restart after server edits.
 
 ## Credentials
 
@@ -40,6 +40,22 @@ bash scripts/setup-account.sh webghost --claim-local
 The command prompts for a password without displaying it. Use at least 12 characters. It assigns existing runs and settings without changing their stored plan content. Other accounts start empty. No browser can claim unassigned records. Omit `--claim-local` when provisioning additional accounts.
 
 Keep `data/credentials.key` together with a private backup of the SQLite database. Losing the key makes saved integration tokens unreadable. Accounts use salted scrypt password hashes, eight-hour server sessions, HttpOnly SameSite cookies, and sign-in rate limits. Sign-out revokes the session; already-approved background work continues. There is no password-reset UI or public registration in this phase.
+
+## Deploy for invited testing
+
+The included Render Blueprint runs one Node instance with a 1 GB persistent disk, HTTPS, health checks, graceful shutdown, and the server Gemini key. Persistent storage requires paid Render compute; free ephemeral hosting would lose accounts, tokens, sessions, and run history after a restart.
+
+[Deploy PromiseGuard on Render](https://render.com/deploy?repo=https://github.com/Webghost01-NG/promiseguard-demo)
+
+During Blueprint setup, enter `GEMINI_API_KEY`. Once deployment succeeds, open the service Shell and provision each invited tester:
+
+```bash
+bash scripts/setup-account.sh tester-name
+```
+
+Each tester signs in at the service's `onrender.com` URL and connects their own GitHub token. Never share one account or token between testers. Back up both `/opt/render/project/src/data/promiseguard.sqlite` and `/opt/render/project/src/data/credentials.key` together. The app accepts only its exact Render HTTPS origin, sets Secure session cookies and keeps anonymous workspace APIs closed.
+
+GitHub App OAuth remains the next phase. Once Render assigns the stable URL, use `https://YOUR-SERVICE.onrender.com/api/github/callback` as the callback address when registering the GitHub App. That route is planned and is not present yet.
 
 ## Prepare actual demo records
 
@@ -83,7 +99,7 @@ Tests cover target restrictions, evidence grounding, immutable approval content,
 - `server/store.ts`: owner-scoped SQLite persistence.
 - `server/accounts.ts`: credentials, sign-in sessions and explicit legacy import.
 - `scripts/setup-account.sh`: terminal account provisioning without exposing passwords.
-- `server/index.ts`: loopback HTTP server, same-origin/session checks, static frontend.
+- `server/index.ts`: local/public HTTP runtime, exact-origin/session checks, health endpoint and static frontend.
 - `tests/`: local invariant and persistence checks.
 
 Provider references: [GitHub issue comments](https://docs.github.com/en/rest/issues/comments), [Notion block update](https://developers.notion.com/reference/update-a-block), [Slack discussion reads](https://docs.slack.dev/reference/methods/conversations.replies/), [Slack posting](https://docs.slack.dev/reference/methods/chat.postMessage/), [Gemini structured output](https://ai.google.dev/gemini-api/docs/generate-content/structured-output).

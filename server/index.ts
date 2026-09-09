@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { Accounts, connectionKeys, encryptionKey } from './accounts.ts';
 import { pathToFileURL } from 'node:url';
 import { existsSync, readFileSync } from 'node:fs';
-import { resolve, extname } from 'node:path';
+import { resolve, extname, join } from 'node:path';
 import { Store } from './store.ts';
 import { Providers, credentials } from './providers.ts';
 import { Coordinator } from './coordinator.ts';
@@ -22,9 +22,19 @@ async function body(req: IncomingMessage) {
   }
   return JSON.parse(data || '{}');
 }
-export function createApp(path = 'data/promiseguard.sqlite', key?: Buffer, port = 4317) {
+function externalOrigin(value: string) {
+  if (!value) return undefined;
+  const url = new URL(value);
+  if (url.protocol !== 'https:' || url.username || url.password || url.pathname !== '/' || url.search || url.hash) {
+    throw new Error('PROMISEGUARD_PUBLIC_URL must be an HTTPS origin without a path, query, or credentials.');
+  }
+  return url.origin;
+}
+
+export function createApp(path = 'data/promiseguard.sqlite', key?: Buffer, port = 4317, publicUrl = '') {
+  const publicOrigin = externalOrigin(publicUrl);
   const root = new Store(path);
-  const accounts = new Accounts(root.db, key || encryptionKey('data/credentials.key', root.db));
+  const accounts = new Accounts(root.db, key || encryptionKey(join(resolve(path, '..'), 'credentials.key'), root.db));
   const contexts = new Map<string, {store:Store;providers:Providers;coordinator:Coordinator}>();
   function context(owner: string) {
     let value = contexts.get(owner);
@@ -42,22 +52,25 @@ export function createApp(path = 'data/promiseguard.sqlite', key?: Buffer, port 
     res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
     const activePort = port || (server.address() as {port:number}).port;
-    const allowedHosts = [`127.0.0.1:${activePort}`, `localhost:${activePort}`];
-    if (!allowedHosts.includes(req.headers.host || '')) return json(res, 403, { error: 'Local access only.' });
-    if (req.headers.origin && !allowedHosts.some(host => req.headers.origin === `http://${host}`)) return json(res, 403, { error: 'Cross-origin requests are not allowed.' });
+    const allowedHosts = publicOrigin ? [new URL(publicOrigin).host] : [`127.0.0.1:${activePort}`, `localhost:${activePort}`];
+    const allowedOrigins = publicOrigin ? [publicOrigin] : allowedHosts.map(host => `http://${host}`);
+    if (publicOrigin) res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    if (!allowedHosts.includes(req.headers.host || '')) return json(res, 403, { error: 'Unexpected request host.' });
+    if (req.headers.origin && !allowedOrigins.includes(req.headers.origin)) return json(res, 403, { error: 'Cross-origin requests are not allowed.' });
     if (req.headers['sec-fetch-site'] === 'cross-site') return json(res, 403, { error: 'Cross-site requests are not allowed.' });
     try {
-      const url = new URL(req.url || '/', `http://127.0.0.1:${port}`);
+      const url = new URL(req.url || '/', publicOrigin || `http://127.0.0.1:${activePort}`);
       if (url.pathname.startsWith('/api/')) {
+        if (req.method === 'GET' && url.pathname === '/api/health') return json(res, 200, { status: 'ok' });
         const token = req.headers.cookie?.split(';').map(s => s.trim()).find(s => s.startsWith('pg_session='))?.slice(11) || '';
-        if (req.method !== 'GET' && (!allowedHosts.some(host => req.headers.origin === `http://${host}`) || !req.headers['content-type']?.startsWith('application/json'))) return json(res, 403, {error:'Same-origin JSON request required.'});
+        if (req.method !== 'GET' && (!allowedOrigins.includes(req.headers.origin || '') || !req.headers['content-type']?.startsWith('application/json'))) return json(res, 403, {error:'Same-origin JSON request required.'});
         if (req.method === 'POST' && url.pathname === '/api/login') {
           const input = await body(req);
           if (typeof input.name !== 'string' || input.name.length > 100 || typeof input.password !== 'string' || input.password.length > 256) return json(res, 400, {error:'Invalid sign-in input.'});
           try {
             const result = await accounts.login(input.name, input.password);
             accounts.logout(token);
-            res.setHeader('Set-Cookie', `pg_session=${result.token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800`);
+            res.setHeader('Set-Cookie', `pg_session=${result.token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800${publicOrigin ? '; Secure' : ''}`);
             return json(res, 200, {user:result.user});
           } catch (error) { return json(res, 401, {error:(error as Error).message}); }
         }
@@ -66,7 +79,7 @@ export function createApp(path = 'data/promiseguard.sqlite', key?: Buffer, port 
         if (req.method !== 'GET' && req.headers['x-promiseguard-session'] !== user.csrf) return json(res, 403, {error:'Refresh the page before making changes.'});
         if (req.method === 'POST' && url.pathname === '/api/logout') {
           accounts.logout(token);
-          res.setHeader('Set-Cookie', 'pg_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0');
+          res.setHeader('Set-Cookie', `pg_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${publicOrigin ? '; Secure' : ''}`);
           return json(res, 200, {ok:true});
         }
         const {store,providers,coordinator} = context(user.id);
@@ -124,7 +137,17 @@ export function createApp(path = 'data/promiseguard.sqlite', key?: Buffer, port 
   return {server, accounts};
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  const {server} = createApp();
-  server.listen(4317, '127.0.0.1', () => console.log('PromiseGuard running at http://127.0.0.1:4317'));
+  const publicUrl = process.env.PROMISEGUARD_PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || '';
+  const port = Number(process.env.PORT || 4317);
+  if (!Number.isSafeInteger(port) || port < 1 || port > 65535) throw new Error('PORT must be an integer between 1 and 65535.');
+  const dataDir = resolve(process.env.PROMISEGUARD_DATA_DIR || 'data');
+  const {server} = createApp(join(dataDir, 'promiseguard.sqlite'), undefined, port, publicUrl);
+  const host = publicUrl ? '0.0.0.0' : '127.0.0.1';
+  server.listen(port, host, () => console.log(`PromiseGuard running at ${publicUrl || `http://127.0.0.1:${port}`}`));
   server.on('error', error => { console.error(`Server could not start: ${error.message}`); process.exitCode = 1; });
+  const shutdown = () => server.close(error => {
+    if (error) { console.error(`Server could not stop cleanly: ${error.message}`); process.exitCode = 1; }
+  });
+  process.once('SIGTERM', shutdown);
+  process.once('SIGINT', shutdown);
 }
