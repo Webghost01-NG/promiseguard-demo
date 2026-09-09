@@ -15,7 +15,7 @@ export class Coordinator {
     if (this.busy || this.store.list().some(r => ['collecting', 'review', 'executing', 'partial'].includes(r.status))) throw new Error('Finish or dismiss the current run before analyzing another commitment.');
     const now = new Date().toISOString();
     const run: Run = { id: randomUUID(), createdAt: now, updatedAt: now, targets, status: 'collecting', actions: [], events: [] };
-    this.event(run, 'Reading the linked commitment, engineering issue, and discussion.');
+    this.event(run, 'Reading the selected commitment and supporting evidence.');
     this.busy = true;
     void this.analyze(run).finally(() => { this.busy = false; });
     return run;
@@ -28,7 +28,7 @@ export class Coordinator {
       run.actions = planActions(run);
       run.planHash = planHash(run);
       run.status = run.assessment.decision === 'repair' ? 'review' : run.assessment.decision;
-      this.event(run, run.status === 'review' ? 'Evidence checked. Review all three proposed changes before execution.' : run.status === 'no_change' ? 'No repair proposed. No external changes were made.' : 'More context is needed. No external changes were made.');
+      this.event(run, run.status === 'review' ? `Evidence checked. Review ${run.actions.length} proposed change${run.actions.length === 1 ? '' : 's'} before execution.` : run.status === 'no_change' ? 'No repair proposed. No external changes were made.' : 'More context is needed. No external changes were made.');
     } catch (error) {
       run.status = 'failed'; run.error = redact((error as Error).message);
       this.event(run, 'Analysis stopped. No external changes were made.');
@@ -66,13 +66,15 @@ export class Coordinator {
         this.event(run, `${action.provider}: recovered the previous write from provider state.`);
       }
       const current = await this.providers.collect(run.targets, run);
-      if (current.githubActor !== run.snapshot!.githubActor || current.slackActor !== run.snapshot!.slackActor || current.fingerprint !== run.snapshot!.fingerprint || current.notionStatus.id !== run.snapshot!.notionStatus.id) {
+      if (current.githubActor !== run.snapshot!.githubActor || current.slackActor !== run.snapshot!.slackActor || current.fingerprint !== run.snapshot!.fingerprint || current.notionStatus?.id !== run.snapshot!.notionStatus?.id) {
         run.status = 'stale'; throw new Error('Source evidence or connection identity changed after review. Dismiss this plan and analyze the latest records.');
       }
-      const notionAction = run.actions.find(a => a.provider === 'Notion')!;
-      const expectedStatus = notionAction.status === 'verified' ? notionAction.body : run.snapshot!.notionStatus.text;
-      if (current.notionStatus.text !== expectedStatus) {
-        run.status = 'stale'; throw new Error('The Notion delivery status changed after review. Analyze it again before making further changes.');
+      const notionAction = run.actions.find(a => a.provider === 'Notion');
+      if (notionAction) {
+        const expectedStatus = notionAction.status === 'verified' ? notionAction.body : run.snapshot!.notionStatus?.text;
+        if (!current.notionStatus || current.notionStatus.text !== expectedStatus) {
+          run.status = 'stale'; throw new Error('The Notion delivery status changed after review. Analyze it again before making further changes.');
+        }
       }
       for (const action of run.actions) {
         if (action.status === 'verified') {
@@ -94,10 +96,10 @@ export class Coordinator {
           throw error;
         }
       }
-      // Final receipt only reflects a fresh check of all three external results.
+      // Final receipt requires a fresh check of every planned external result.
       for (const action of run.actions) if (!await this.providers.verify(run, action)) throw new Error(`${action.provider}: final verification failed. Completion has not been claimed.`);
       run.status = 'completed';
-      this.event(run, 'All three changes verified. The commitment is at risk and the owner has a next action; the engineering blocker remains open.');
+      this.event(run, `All ${run.actions.length} planned change${run.actions.length === 1 ? '' : 's'} verified. The engineering blocker still needs resolution.`);
     } catch (error) {
       if (run.status !== 'stale') run.status = 'partial';
       run.error = redact((error as Error).message);

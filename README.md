@@ -26,19 +26,21 @@ Open http://127.0.0.1:4317. The server binds only to loopback. Rebuild after edi
 nano .env
 ```
 
-Fill in `GEMINI_API_KEY`, `GITHUB_TOKEN`, `NOTION_TOKEN`, and `SLACK_BOT_TOKEN`. The file is Git-ignored and must remain private. Tokens are reloaded for provider requests, so saving updated tokens does not require a server restart. The browser receives credential presence and connection results, never the tokens themselves. Click Connections → Check connections to verify authentication. Gemini model-list access does not prove generation quota.
+Fill in `GEMINI_API_KEY` and `GITHUB_TOKEN`. Add `NOTION_TOKEN` only for Notion commitments and `SLACK_BOT_TOKEN` only for Slack discussions. The file is Git-ignored and must remain private. Tokens are reloaded for provider requests, so saving updated tokens does not require a server restart. The browser receives credential presence and connection results, never the tokens themselves. Click Connections → Check connections to verify authentication. Gemini model-list access does not prove generation quota.
 
 ## Prepare actual demo records
 
 Use a GitHub repository you control and whose issues the token can access. The project’s `promiseguard-demo` repository contains an explicitly synthetic demonstration issue. Create an engineering issue you want the app to analyze. The app does not create initial demo records or send setup messages automatically.
 
-On your shared Notion demo page, add plain paragraphs explaining the customer commitment and linking its required GitHub issue. Add exactly one separate plain paragraph beginning `Delivery status:`. This paragraph is the only Notion block the app may replace after approval. Nested blocks are deliberately rejected to avoid silent incomplete evidence collection. This implements the status update on the plain page already created, without requiring a database schema.
+For GitHub-only mode, create a separate commitment issue describing the promise and linking its required engineering issue. Select **GitHub issue** as the commitment source. An approved repair posts a handoff comment on the engineering issue; it does not rewrite the commitment issue.
 
-In your chosen public Slack channel, ensure the bot is a member. Use a discussion about the same blocker, then use **Copy link** on the discussion message. Paste the entire link; do not retype the timestamp. **Check Slack thread** verifies access and preserves the exact thread link. Reply links containing `thread_ts` resolve to their parent discussion. The app reads that specific thread and posts its approved escalation into that thread.
+For an optional Notion commitment, on your shared Notion demo page, add plain paragraphs explaining the customer commitment and linking its required GitHub issue. Add exactly one separate plain paragraph beginning `Delivery status:`. This paragraph is the only Notion block the app may replace after approval. Nested blocks are deliberately rejected to avoid silent incomplete evidence collection. This implements the status update on the plain page already created, without requiring a database schema.
 
-Slack is checked before an analysis run is created. A missing message produces a targeted error without saving new targets or starting Gemini. A successful read verifies access, not whether that discussion is relevant to the GitHub issue.
+If including Slack, in your chosen public Slack channel, ensure the bot is a member. Use a discussion about the same blocker, then use **Copy link** on the discussion message. Paste the entire link; do not retype the timestamp. **Check Slack thread** verifies access and preserves the exact thread link. Reply links containing `thread_ts` resolve to their parent discussion. The app reads that specific thread and posts its approved escalation into that thread.
 
-Enter the issue URL, Notion page URL, Slack channel link/ID, Slack discussion link, owner, and selected Gemini model. Analyze sends relevant source text to Gemini but makes no writes to the three workflow apps. Review the exact proposed changes, check the authorization checkbox, then apply. Dismiss a no-longer-needed review before starting another run.
+When selected, Slack is checked before an analysis run is created. A missing message produces a targeted error without saving new targets or starting Gemini. A successful read verifies access, not whether that discussion is relevant to the GitHub issue.
+
+Enter the engineering issue URL, selected commitment source, owner, and Gemini model. Include Slack only when you want its discussion evidence and notification. Analyze sends relevant source text to Gemini but makes no writes to the three workflow apps. Review the exact proposed changes, check the authorization checkbox, then apply. Dismiss a no-longer-needed review before starting another run.
 
 ## Execution and recovery
 
@@ -73,4 +75,15 @@ Provider references: [GitHub issue comments](https://docs.github.com/en/rest/iss
 
 ## Current scope
 
-This first workflow requires GitHub, Notion, and Slack together, plus Gemini. GitHub-only workflows and optional connectors are proposed follow-up work, not implemented capabilities. The public repository publishes source code; it does not make the local server a hosted multi-user service.
+GitHub and Gemini are required. Notion and Slack are optional for each run.
+
+| Selected workflow apps | Approved repair destinations |
+| --- | --- |
+| GitHub | Engineering issue comment |
+| GitHub + Slack | Engineering issue comment, Slack reply |
+| GitHub + Notion | Engineering issue comment, Notion status paragraph |
+| GitHub + Notion + Slack | All three destinations |
+
+![GitHub-only source selection](docs/assets/github-only.png)
+
+User OAuth onboarding is the next phase; see the [OAuth plan](docs/oauth-onboarding.md). The public repository publishes source code; it does not make the local server a hosted multi-user service.
