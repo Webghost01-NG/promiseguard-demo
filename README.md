@@ -61,6 +61,8 @@ During Blueprint setup, enter `GEMINI_API_KEY` and the configured providers' OAu
 bash scripts/setup-account.sh tester-name
 ```
 
+For a repeatable operator account on an ephemeral test deployment, set both `PROMISEGUARD_ADMIN_USER` and `PROMISEGUARD_ADMIN_PASSWORD`. The server creates that account only when the username is absent and never logs the password. A persistent production deployment should provision accounts once and remove these bootstrap variables.
+
 Each tester signs in at the service's `onrender.com` URL and connects their own GitHub workflow token. Never share one account or token between testers. Back up both `/opt/render/project/src/data/promiseguard.sqlite` and `/opt/render/project/src/data/credentials.key` together. The app accepts only its exact Render HTTPS origin, sets Secure session cookies and keeps anonymous workspace APIs closed.
 
 ## Prepare actual demo records
