@@ -31,7 +31,7 @@ nano .env
 
 Set the server’s `GEMINI_API_KEY` in `.env`. Sign in and save your own GitHub token in Connections. Add Notion and Slack only when needed. These tokens are encrypted in SQLite and scoped to your account; saved values are never returned to the browser. The server does not fall back to the operator’s GitHub, Notion or Slack environment tokens. Click Connections → Check connections to verify authentication. Gemini model-list access does not prove generation quota.
 
-Users can create a password account from the sign-in page. Registration is rate limited and passwords must contain 12–256 characters. Social sign-up is enabled separately for each provider whose client ID and client secret are configured. A provider’s verified immutable user ID is bound to one PromiseGuard account; accounts are never merged from email alone. Register these callback paths for the deployed origin:
+Users can create a password account from the sign-in page. Registration is rate limited and passwords must contain 8–256 characters. Social sign-up is enabled separately for each provider whose client ID and client secret are configured. A provider’s verified immutable user ID is bound to one PromiseGuard account; accounts are never merged from email alone. Register these callback paths for the deployed origin:
 
 - `/api/auth/google/callback`
 - `/api/auth/github/callback`
@@ -53,7 +53,7 @@ Create your account and explicitly import the existing local records and `.env` 
 bash scripts/setup-account.sh webghost --claim-local
 ```
 
-The command prompts for a password without displaying it. Use at least 12 characters. It assigns existing runs and settings without changing their stored plan content. Other accounts start empty. No browser can claim unassigned records. Omit `--claim-local` when provisioning additional accounts.
+The command prompts for a password without displaying it. Use at least 8 characters. It assigns existing runs and settings without changing their stored plan content. Other accounts start empty. No browser can claim unassigned records. Omit `--claim-local` when provisioning additional accounts.
 
 For local SQLite, keep `data/credentials.key` together with a private database backup. Turso deployments must set `PROMISEGUARD_CREDENTIAL_KEY` to one stable base64-encoded 32-byte key. Losing or changing that key makes saved integration tokens unreadable. Password accounts use salted scrypt hashes; all accounts use eight-hour server sessions and HttpOnly SameSite cookies. Password sign-in has rate limits. Sign-out revokes the session; already-approved background work continues. There is no password-reset UI for operator-created accounts. Social accounts do not have local passwords.
 

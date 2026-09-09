@@ -390,6 +390,8 @@ footer { display: flex; align-items: center; gap: 25px; justify-content: space-b
 .auth-heading .eyebrow { font-size: 8px; letter-spacing: 1.2px; }
 .signin h1 { margin: 9px 0 8px; font-size: clamp(30px, 7vw, 39px); line-height: 1.08; letter-spacing: -1.9px; }
 .auth-heading p { max-width: 330px; margin: 0 auto; color: var(--muted); font-size: 12px; line-height: 1.7; }
+.auth-heading .auth-context { max-width: 350px; margin-top: 12px; font-size: 10px; line-height: 1.6; }
+.auth-context a { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
 .auth-loading { margin: 40px 0 22px; text-align: center; color: var(--muted); font-size: 12px; }
 .social-auth { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; margin-top: 26px; }
 .social-button { min-height: 58px; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 9px 7px; border: 1px solid #d8d9d2; border-radius: 8px; color: var(--ink); background: #fff; font-size: 10px; font-weight: 650; text-decoration: none; }
