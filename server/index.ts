@@ -104,6 +104,19 @@ export function createApp(path = 'data/promiseguard.sqlite', key?: Buffer, port 
             return json(res, 200, {user:result.user});
           } catch (error) { return json(res, 401, {error:(error as Error).message}); }
         }
+        if (req.method === 'POST' && url.pathname === '/api/signup') {
+          const input = await body(req);
+          if (typeof input.name !== 'string' || input.name.length > 100 || typeof input.password !== 'string' || input.password.length > 256) return json(res,400,{error:'Invalid sign-up input.'});
+          try {
+            const result = await accounts.register(req.socket.remoteAddress || 'unknown',input.name,input.password);
+            accounts.logout(token);
+            res.setHeader('Set-Cookie',`pg_session=${result.token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800${publicOrigin ? '; Secure' : ''}`);
+            return json(res,201,{user:result.user});
+          } catch (error) {
+            const message=(error as Error).message;
+            return json(res,400,{error:message.includes('UNIQUE constraint failed') ? 'That username is unavailable.' : message});
+          }
+        }
         const user = accounts.session(token);
         if (!user) return json(res, 401, {error:'Sign in to your workspace.'});
         if (req.method !== 'GET' && req.headers['x-promiseguard-session'] !== user.csrf) return json(res, 403, {error:'Refresh the page before making changes.'});

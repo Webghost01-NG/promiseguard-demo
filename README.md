@@ -29,7 +29,7 @@ nano .env
 
 Set the server’s `GEMINI_API_KEY` in `.env`. Sign in and save your own GitHub token in Connections. Add Notion and Slack only when needed. These tokens are encrypted in SQLite and scoped to your account; saved values are never returned to the browser. The server does not fall back to the operator’s GitHub, Notion or Slack environment tokens. Click Connections → Check connections to verify authentication. Gemini model-list access does not prove generation quota.
 
-Social sign-up is enabled separately for each provider whose client ID and client secret are configured. A provider’s verified immutable user ID is bound to one PromiseGuard account; accounts are never merged from email alone. Register these callback paths for the deployed origin:
+Users can create a password account from the sign-in page. Registration is rate limited and passwords must contain 12–256 characters. Social sign-up is enabled separately for each provider whose client ID and client secret are configured. A provider’s verified immutable user ID is bound to one PromiseGuard account; accounts are never merged from email alone. Register these callback paths for the deployed origin:
 
 - `/api/auth/google/callback`
 - `/api/auth/github/callback`
