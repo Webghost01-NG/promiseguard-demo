@@ -130,7 +130,6 @@ test('concurrent GitHub token use performs one refresh and preserves installatio
     const url=new URL(String(input));
     if(url.hostname==='github.com'){refreshes++;return Response.json({access_token:'fresh-access',refresh_token:'next-refresh',expires_in:3600,refresh_token_expires_in:7200});}
     if(url.pathname==='/user')return Response.json({id:7});
-    if(url.pathname==='/user/installations/42')return Response.json({id:42});
     if(url.pathname==='/user/installations/42/repositories')return Response.json({total_count:1,repositories:[{full_name:'unit/current'}]});
     throw new Error(`Unexpected GitHub request: ${url.pathname}`);
   };
