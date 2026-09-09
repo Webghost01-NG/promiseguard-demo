@@ -34,6 +34,18 @@ function externalOrigin(value: string) {
   return url.origin;
 }
 
+function connectionReturn(provider: WorkflowProvider | 'github', message?: string) {
+  const query = new URLSearchParams({ connection: provider });
+  if (message) query.set('connection_error', message.slice(0, 300));
+  return `/?${query}`;
+}
+
+function deniedConnectionMessage(provider: WorkflowProvider | 'github') {
+  if (provider === 'slack') return 'Slack did not grant access. Choose a workspace where you can install apps, click Allow, then try again. Your existing connection was unchanged.';
+  if (provider === 'notion') return 'Notion did not grant access. Select the pages PromiseGuard may use, click Allow access, then try again. Your existing connection was unchanged.';
+  return 'GitHub did not grant access. Authorize PromiseGuard and select at least one repository, then try again. Your existing connection was unchanged.';
+}
+
 export function createApp(path = 'data/promiseguard.sqlite', key?: Buffer, port = 4317, publicUrl = '') {
   const publicOrigin = externalOrigin(publicUrl);
   const root = new Store(path);
@@ -120,13 +132,13 @@ export function createApp(path = 'data/promiseguard.sqlite', key?: Buffer, port 
             const saved=accounts.consumeConnectionOauth('github-install',state);const installationId=url.searchParams.get('installation_id')||'';
             if(!saved||!/^\d+$/.test(installationId))throw new Error('The GitHub installation expired or was not completed.');
             return authorizeGithub(saved.user_id,'',Number(installationId),saved.session_hash);
-          }catch(error){res.setHeader('Set-Cookie',`pg_connect_oauth=; HttpOnly; SameSite=Lax; Path=/api/connections/github; Max-Age=0${publicOrigin?'; Secure':''}`);res.writeHead(302,{Location:`/?connection_error=${encodeURIComponent((error as Error).message.slice(0,300))}`});return res.end();}
+          }catch(error){res.setHeader('Set-Cookie',`pg_connect_oauth=; HttpOnly; SameSite=Lax; Path=/api/connections/github; Max-Age=0${publicOrigin?'; Secure':''}`);res.writeHead(302,{Location:connectionReturn('github',(error as Error).message)});return res.end();}
         }
         if(req.method==='GET'&&url.pathname==='/api/connections/github/callback'){
           try{
             const state=url.searchParams.get('state')||'';if(!state||state!==connectionCookie)throw new Error('The GitHub authorization did not match this browser.');
             const saved=accounts.consumeConnectionOauth('github-authorize',state);if(!saved)throw new Error('The GitHub authorization expired or was already used.');
-            if(url.searchParams.get('error'))throw new Error('GitHub authorization was cancelled. Your existing connection was unchanged.');
+            if(url.searchParams.get('error'))throw new Error(deniedConnectionMessage('github'));
             const exchanged=await exchange(url.searchParams.get('code')||'',saved.verifier,`${requestOrigin}/api/connections/github/callback`,githubConfig);
             let grant;
             try{grant=await buildGrant(exchanged,Number(saved.installation_id));}
@@ -138,7 +150,7 @@ export function createApp(path = 'data/promiseguard.sqlite', key?: Buffer, port 
             }
             accounts.setConnection(saved.user_id,'GITHUB_TOKEN',JSON.stringify(grant));
             res.setHeader('Set-Cookie',`pg_connect_oauth=; HttpOnly; SameSite=Lax; Path=/api/connections/github; Max-Age=0${publicOrigin?'; Secure':''}`);res.writeHead(302,{Location:'/?connection=github','Cache-Control':'no-store'});return res.end();
-          }catch(error){res.setHeader('Set-Cookie',`pg_connect_oauth=; HttpOnly; SameSite=Lax; Path=/api/connections/github; Max-Age=0${publicOrigin?'; Secure':''}`);res.writeHead(302,{Location:`/?connection_error=${encodeURIComponent((error as Error).message.slice(0,300))}`});return res.end();}
+          }catch(error){res.setHeader('Set-Cookie',`pg_connect_oauth=; HttpOnly; SameSite=Lax; Path=/api/connections/github; Max-Age=0${publicOrigin?'; Secure':''}`);res.writeHead(302,{Location:connectionReturn('github',(error as Error).message)});return res.end();}
         }
         const workflowRoute=url.pathname.match(/^\/api\/connections\/(slack|notion)\/callback$/);
         const workflowProvider=(url.pathname==='/api/auth/slack/callback/connection'?'slack':workflowRoute?.[1]) as WorkflowProvider|undefined;
@@ -147,12 +159,12 @@ export function createApp(path = 'data/promiseguard.sqlite', key?: Buffer, port 
           try{
             const state=url.searchParams.get('state')||'';if(!state||state!==connectionCookie)throw new Error(`The ${provider === 'slack' ? 'Slack' : 'Notion'} connection did not match this browser.`);
             const saved=accounts.consumeConnectionOauth(`${provider}-connect`,state);if(!saved)throw new Error(`The ${provider === 'slack' ? 'Slack' : 'Notion'} connection expired or was already used.`);
-            if(url.searchParams.get('error'))throw new Error(`${provider === 'slack' ? 'Slack' : 'Notion'} authorization was cancelled. Your existing connection was unchanged.`);
+            if(url.searchParams.get('error'))throw new Error(deniedConnectionMessage(provider));
             const redirectUri=provider==='slack'?`${requestOrigin}/api/auth/slack/callback/connection`:`${requestOrigin}/api/connections/notion/callback`;
             const grant=await exchangeWorkflowCode(provider,url.searchParams.get('code')||'',redirectUri,workflowOauthConfig()[provider]);
             accounts.setConnection(saved.user_id,provider==='slack'?'SLACK_BOT_TOKEN':'NOTION_TOKEN',JSON.stringify(grant));
             res.setHeader('Set-Cookie',`pg_connect_oauth=; HttpOnly; SameSite=Lax; Path=/api; Max-Age=0${publicOrigin?'; Secure':''}`);res.writeHead(302,{Location:`/?connection=${provider}`,'Cache-Control':'no-store'});return res.end();
-          }catch(error){res.setHeader('Set-Cookie',`pg_connect_oauth=; HttpOnly; SameSite=Lax; Path=/api; Max-Age=0${publicOrigin?'; Secure':''}`);res.writeHead(302,{Location:`/?connection_error=${encodeURIComponent((error as Error).message.slice(0,300))}`});return res.end();}
+          }catch(error){res.setHeader('Set-Cookie',`pg_connect_oauth=; HttpOnly; SameSite=Lax; Path=/api; Max-Age=0${publicOrigin?'; Secure':''}`);res.writeHead(302,{Location:connectionReturn(provider,(error as Error).message)});return res.end();}
         }
         if (req.method !== 'GET' && (!allowedOrigins.includes(req.headers.origin || '') || !req.headers['content-type']?.startsWith('application/json'))) return json(res, 403, {error:'Same-origin JSON request required.'});
         if (req.method === 'POST' && url.pathname === '/api/login') {
