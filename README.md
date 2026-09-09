@@ -57,7 +57,7 @@ Keep `data/credentials.key` together with a private backup of the SQLite databas
 
 ## Deploy for invited testing
 
-The included Render Blueprint runs one Node instance with a 1 GB persistent disk, HTTPS, health checks, graceful shutdown, and the server Gemini key. Persistent storage requires paid Render compute; free ephemeral hosting would lose accounts, tokens, sessions, and run history after a restart.
+The included Render Blueprint runs one free Node instance with HTTPS, health checks, graceful shutdown, and the server Gemini key. Render's free filesystem is ephemeral, so accounts, tokens, sessions, and run history are lost when the service restarts, spins down, or redeploys.
 
 [Deploy PromiseGuard on Render](https://render.com/deploy?repo=https://github.com/Webghost01-NG/promiseguard-demo)
 
@@ -69,7 +69,7 @@ bash scripts/setup-account.sh tester-name
 
 For a repeatable operator account on an ephemeral test deployment, set both `PROMISEGUARD_ADMIN_USER` and `PROMISEGUARD_ADMIN_PASSWORD`. The server creates that account only when the username is absent and never logs the password. A persistent production deployment should provision accounts once and remove these bootstrap variables.
 
-Each tester signs in at the service's `onrender.com` URL and authorizes only the workflow applications they need. Never share one account or token between testers. Back up both `/opt/render/project/src/data/promiseguard.sqlite` and `/opt/render/project/src/data/credentials.key` together. The app accepts only its exact Render HTTPS origin, sets Secure session cookies and keeps anonymous workspace APIs closed.
+Each tester signs in at the service's `onrender.com` URL and authorizes only the workflow applications they need. Never share one account or token between testers. The app accepts only its exact Render HTTPS origin, sets Secure session cookies and keeps anonymous workspace APIs closed. Move the database and credential key to durable storage together before treating this as a persistent production service.
 
 ## Prepare actual demo records
 
