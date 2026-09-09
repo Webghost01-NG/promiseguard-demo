@@ -67,7 +67,7 @@ export function createApp(path = 'data/promiseguard.sqlite', key?: Buffer, port 
     if (!allowedHosts.includes(req.headers.host || '')) return json(res, 403, { error: 'Unexpected request host.' });
     if (req.headers.origin && !allowedOrigins.includes(req.headers.origin)) return json(res, 403, { error: 'Cross-origin requests are not allowed.' });
     const requestPath = new URL(req.url || '/', requestOrigin).pathname;
-    const oauthCallback = /^\/api\/auth\/(google|github|slack)\/callback$/.test(requestPath) || /^\/api\/connections\/(github\/(setup|callback)|(slack|notion)\/callback)$/.test(requestPath);
+    const oauthCallback = /^\/api\/auth\/(google|github|slack)\/callback$/.test(requestPath) || requestPath === '/api/auth/slack/callback/connection' || /^\/api\/connections\/(github\/(setup|callback)|(slack|notion)\/callback)$/.test(requestPath);
     const publicNavigation = req.method === 'GET'
       && !requestPath.startsWith('/api/')
       && req.headers['sec-fetch-mode'] === 'navigate'
@@ -132,14 +132,15 @@ export function createApp(path = 'data/promiseguard.sqlite', key?: Buffer, port 
             res.setHeader('Set-Cookie',`pg_connect_oauth=; HttpOnly; SameSite=Lax; Path=/api/connections/github; Max-Age=0${publicOrigin?'; Secure':''}`);res.writeHead(302,{Location:'/?connection=github','Cache-Control':'no-store'});return res.end();
           }catch(error){res.setHeader('Set-Cookie',`pg_connect_oauth=; HttpOnly; SameSite=Lax; Path=/api/connections/github; Max-Age=0${publicOrigin?'; Secure':''}`);res.writeHead(302,{Location:`/?connection_error=${encodeURIComponent((error as Error).message.slice(0,300))}`});return res.end();}
         }
-        const workflowRoute=url.pathname.match(/^\/api\/connections\/(slack|notion)\/(callback)$/);
-        if(req.method==='GET'&&workflowRoute){
-          const provider=workflowRoute[1] as WorkflowProvider;
+        const workflowRoute=url.pathname.match(/^\/api\/connections\/(slack|notion)\/callback$/);
+        const workflowProvider=(url.pathname==='/api/auth/slack/callback/connection'?'slack':workflowRoute?.[1]) as WorkflowProvider|undefined;
+        if(req.method==='GET'&&workflowProvider){
+          const provider=workflowProvider;
           try{
             const state=url.searchParams.get('state')||'';if(!state||state!==connectionCookie)throw new Error(`The ${provider === 'slack' ? 'Slack' : 'Notion'} connection did not match this browser.`);
             const saved=accounts.consumeConnectionOauth(`${provider}-connect`,state);if(!saved)throw new Error(`The ${provider === 'slack' ? 'Slack' : 'Notion'} connection expired or was already used.`);
             if(url.searchParams.get('error'))throw new Error(`${provider === 'slack' ? 'Slack' : 'Notion'} authorization was cancelled. Your existing connection was unchanged.`);
-            const redirectUri=`${requestOrigin}/api/connections/${provider}/callback`;
+            const redirectUri=provider==='slack'?`${requestOrigin}/api/auth/slack/callback/connection`:`${requestOrigin}/api/connections/notion/callback`;
             const grant=await exchangeWorkflowCode(provider,url.searchParams.get('code')||'',redirectUri,workflowOauthConfig()[provider]);
             accounts.setConnection(saved.user_id,provider==='slack'?'SLACK_BOT_TOKEN':'NOTION_TOKEN',JSON.stringify(grant));
             res.setHeader('Set-Cookie',`pg_connect_oauth=; HttpOnly; SameSite=Lax; Path=/api/connections; Max-Age=0${publicOrigin?'; Secure':''}`);res.writeHead(302,{Location:`/?connection=${provider}`,'Cache-Control':'no-store'});return res.end();
@@ -185,7 +186,7 @@ export function createApp(path = 'data/promiseguard.sqlite', key?: Buffer, port 
           const provider=workflowStart[1] as WorkflowProvider;const config=workflowOauthConfig()[provider];
           if(!config.clientId||!config.clientSecret)throw new Error(`${provider === 'slack' ? 'Slack' : 'Notion'} connection OAuth is not configured.`);
           const state=accounts.beginConnectionOauth(user.id,token,`${provider}-connect`);
-          const redirectUri=`${requestOrigin}/api/connections/${provider}/callback`;
+          const redirectUri=provider==='slack'?`${requestOrigin}/api/auth/slack/callback/connection`:`${requestOrigin}/api/connections/notion/callback`;
           res.setHeader('Set-Cookie',`pg_connect_oauth=${state}; HttpOnly; SameSite=Lax; Path=/api/connections; Max-Age=600${publicOrigin?'; Secure':''}`);
           res.writeHead(302,{Location:workflowAuthorizeUrl(provider,state,redirectUri,config).href,'Cache-Control':'no-store'});return res.end();
         }
