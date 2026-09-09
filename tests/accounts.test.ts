@@ -9,8 +9,8 @@ import { request as httpRequest } from 'node:http';
 import { Store } from '../server/store.ts';
 import { Accounts, encryptionKey } from '../server/accounts.ts';
 import { createApp } from '../server/index.ts';
-import { workflowGrantMeta } from '../server/workflow-oauth.ts';
-import { buildGrant, GithubInstallationRequired } from '../server/github-connection.ts';
+import { workflowGrantMeta, workflowToken } from '../server/workflow-oauth.ts';
+import { buildGrant, GithubInstallationRequired, githubToken } from '../server/github-connection.ts';
 import { redact } from '../server/providers.ts';
 import type { Run } from '../server/domain.ts';
 const password = 'synthetic-test-password-only';
@@ -122,6 +122,31 @@ test('GitHub authorization recovers every existing App installation and its sele
     globalThis.fetch=async input=>new URL(String(input)).pathname==='/user'?Response.json({id:7}):Response.json({total_count:0,installations:[]});
     await assert.rejects(buildGrant({access_token:'unit-access'}),GithubInstallationRequired);
   } finally {globalThis.fetch=original;}
+});
+test('concurrent GitHub token use performs one refresh and preserves installation access', async () => {
+  const store=new Store(':memory:');const accounts=new Accounts(store.db,randomBytes(32));const original=globalThis.fetch;let refreshes=0;
+  accounts.setConnection('alice','GITHUB_TOKEN',JSON.stringify({kind:'github-app-user',accessToken:'expired-access',refreshToken:'active-refresh',expiresAt:Date.now()-1,refreshExpiresAt:Date.now()+3600000,githubUserId:7,installationId:42,installationIds:[42],repositories:['unit/old']}));
+  globalThis.fetch=async input=>{
+    const url=new URL(String(input));
+    if(url.hostname==='github.com'){refreshes++;return Response.json({access_token:'fresh-access',refresh_token:'next-refresh',expires_in:3600,refresh_token_expires_in:7200});}
+    if(url.pathname==='/user')return Response.json({id:7});
+    if(url.pathname==='/user/installations/42')return Response.json({id:42});
+    if(url.pathname==='/user/installations/42/repositories')return Response.json({total_count:1,repositories:[{full_name:'unit/current'}]});
+    throw new Error(`Unexpected GitHub request: ${url.pathname}`);
+  };
+  try {
+    assert.deepEqual(await Promise.all([githubToken(accounts,'alice',{clientId:'unit-id',clientSecret:'unit-secret',slug:'unit'}),githubToken(accounts,'alice',{clientId:'unit-id',clientSecret:'unit-secret',slug:'unit'})]),['fresh-access','fresh-access']);
+    assert.equal(refreshes,1);const saved=JSON.parse(accounts.credentials('alice').GITHUB_TOKEN);assert.equal(saved.accessToken,'fresh-access');assert.deepEqual(saved.repositories,['unit/current']);
+  } finally {globalThis.fetch=original;store.db.close();}
+});
+test('concurrent Slack token use performs one rotation and saves the replacement grant', async () => {
+  const store=new Store(':memory:');const accounts=new Accounts(store.db,randomBytes(32));const original=globalThis.fetch;let refreshes=0;
+  accounts.setConnection('alice','SLACK_BOT_TOKEN',JSON.stringify({kind:'slack-oauth',accessToken:'expired-access',refreshToken:'active-refresh',expiresAt:Date.now()-1,teamId:'T1',teamName:'Unit Slack',botUserId:'B1'}));
+  globalThis.fetch=async input=>{const url=new URL(String(input));if(url.hostname!=='slack.com')throw new Error(`Unexpected Slack request: ${url.href}`);refreshes++;return Response.json({ok:true,access_token:'fresh-access',refresh_token:'next-refresh',expires_in:3600});};
+  try {
+    assert.deepEqual(await Promise.all([workflowToken(accounts,'alice','slack',{clientId:'unit-id',clientSecret:'unit-secret'}),workflowToken(accounts,'alice','slack',{clientId:'unit-id',clientSecret:'unit-secret'})]),['fresh-access','fresh-access']);
+    assert.equal(refreshes,1);const saved=JSON.parse(accounts.credentials('alice').SLACK_BOT_TOKEN);assert.equal(saved.accessToken,'fresh-access');assert.equal(saved.refreshToken,'next-refresh');
+  } finally {globalThis.fetch=original;store.db.close();}
 });
 test('owner scope prevents reading, updating, and overwriting another user’s settings or runs', () => {
   const dir=mkdtempSync(join(tmpdir(),'pg-scope-'));const path=join(dir,'db');const a=new Store(path,'alice'),b=new Store(path,'bob');
