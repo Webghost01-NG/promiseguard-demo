@@ -21,6 +21,8 @@ npm start
 
 Open http://127.0.0.1:4317. Without public deployment variables, the server binds only to loopback. Rebuild after editing frontend files; restart after server edits.
 
+Local development uses SQLite by default. Set `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, and a base64-encoded 32-byte `PROMISEGUARD_CREDENTIAL_KEY` to use the same durable Turso storage as a public deployment.
+
 ## Credentials
 
 ```bash
@@ -53,15 +55,15 @@ bash scripts/setup-account.sh webghost --claim-local
 
 The command prompts for a password without displaying it. Use at least 12 characters. It assigns existing runs and settings without changing their stored plan content. Other accounts start empty. No browser can claim unassigned records. Omit `--claim-local` when provisioning additional accounts.
 
-Keep `data/credentials.key` together with a private backup of the SQLite database. Losing the key makes saved integration tokens unreadable. Password accounts use salted scrypt hashes; all accounts use eight-hour server sessions and HttpOnly SameSite cookies. Password sign-in has rate limits. Sign-out revokes the session; already-approved background work continues. There is no password-reset UI for operator-created accounts. Social accounts do not have local passwords.
+For local SQLite, keep `data/credentials.key` together with a private database backup. Turso deployments must set `PROMISEGUARD_CREDENTIAL_KEY` to one stable base64-encoded 32-byte key. Losing or changing that key makes saved integration tokens unreadable. Password accounts use salted scrypt hashes; all accounts use eight-hour server sessions and HttpOnly SameSite cookies. Password sign-in has rate limits. Sign-out revokes the session; already-approved background work continues. There is no password-reset UI for operator-created accounts. Social accounts do not have local passwords.
 
 ## Deploy for invited testing
 
-The included Render Blueprint runs one free Node instance with HTTPS, health checks, graceful shutdown, and the server Gemini key. Render's free filesystem is ephemeral, so accounts, tokens, sessions, and run history are lost when the service restarts, spins down, or redeploys.
+The included Render Blueprint runs one free Node instance with HTTPS, health checks, graceful shutdown, and Turso-backed persistence. Turso stores accounts, encrypted OAuth grants, settings, sessions, and run history across Render restarts and redeploys; the local Render filesystem remains disposable.
 
 [Deploy PromiseGuard on Render](https://render.com/deploy?repo=https://github.com/Webghost01-NG/promiseguard-demo)
 
-During Blueprint setup, enter `GEMINI_API_KEY` and the configured providers' OAuth client IDs and secrets. Social sign-in creates a private workspace on first use. You can also open the service Shell and provision an invited password account:
+During Blueprint setup, enter `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `PROMISEGUARD_CREDENTIAL_KEY`, `GEMINI_API_KEY`, and the configured providers' OAuth client IDs and secrets. Generate the credential key once with `openssl rand -base64 32`, store it as a Render secret, and retain a private backup. Social sign-in creates a private workspace on first use. You can also open the service Shell and provision an invited password account:
 
 ```bash
 bash scripts/setup-account.sh tester-name
@@ -69,7 +71,7 @@ bash scripts/setup-account.sh tester-name
 
 For a repeatable operator account on an ephemeral test deployment, set both `PROMISEGUARD_ADMIN_USER` and `PROMISEGUARD_ADMIN_PASSWORD`. The server creates that account only when the username is absent and never logs the password. A persistent production deployment should provision accounts once and remove these bootstrap variables.
 
-Each tester signs in at the service's `onrender.com` URL and authorizes only the workflow applications they need. Never share one account or token between testers. The app accepts only its exact Render HTTPS origin, sets Secure session cookies and keeps anonymous workspace APIs closed. Move the database and credential key to durable storage together before treating this as a persistent production service.
+Each tester signs in at the service's `onrender.com` URL and authorizes only the workflow applications they need. Never share one account or token between testers. The app accepts only its exact Render HTTPS origin, sets Secure session cookies and keeps anonymous workspace APIs closed. Enabling Turso creates an empty durable database; records from an earlier ephemeral Render SQLite instance are not copied automatically.
 
 ## Prepare actual demo records
 
@@ -87,7 +89,7 @@ Enter the engineering issue URL, selected commitment source, owner, and Gemini m
 
 ## Execution and recovery
 
-SQLite stores evidence, versioned plan content, action state, returned record IDs, and verification observations in `data/`. Treat it as private workspace data; it is Git-ignored. Approval is bound to a hash of the plan, evidence, and targets. Source changes invalidate the plan. The server executes one run at a time per account, survives browser disconnects, and marks interrupted writes as unknown after a restart.
+The configured database stores evidence, versioned plan content, action state, returned record IDs, and verification observations. Local development uses Git-ignored SQLite in `data/`; public deployments use Turso when its two variables are set. Approval is bound to a hash of the plan, evidence, and targets. Source changes invalidate the plan. The server executes one run at a time per account, survives browser disconnects, and marks interrupted writes as unknown after a restart.
 
 An unknown write is reconciled against the original provider identity and exact target/content before any retry. Absence from a lookup never automatically authorizes repeating an ambiguous write. When ambiguity cannot be resolved, the run remains partial and new runs are blocked until the operator resolves the external state. This is a deliberate availability tradeoff to prevent blind duplication. There is no universal exactly-once or cross-app transaction guarantee.
 
@@ -110,7 +112,8 @@ Tests cover target restrictions, evidence grounding, immutable approval content,
 - `server/domain.ts`: target validation, evidence/plan types, grounded assessment checks.
 - `server/providers.ts`: real provider REST adapters, collection, analysis, writes and read-back.
 - `server/coordinator.ts`: approval, execution, recovery and completion rules.
-- `server/store.ts`: owner-scoped SQLite persistence.
+- `server/database.ts`: serialized local SQLite and remote Turso database adapters.
+- `server/store.ts`: owner-scoped run and settings persistence.
 - `server/accounts.ts`: credentials, sign-in sessions and explicit legacy import.
 - `scripts/setup-account.sh`: terminal account provisioning without exposing passwords.
 - `server/index.ts`: local/public HTTP runtime, exact-origin/session checks, health endpoint and static frontend.

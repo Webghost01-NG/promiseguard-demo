@@ -86,7 +86,7 @@ export async function exchangeWorkflowCode(provider: WorkflowProvider, code: str
 }
 
 async function refreshWorkflowToken(accounts: Accounts, userId: string, provider: WorkflowProvider, config: WorkflowConfig) {
-  const raw = accounts.credentials(userId)[keys[provider]] || '';
+  const raw = (await accounts.credentials(userId))[keys[provider]] || '';
   const grant = parseGrant(raw);
   if (!grant || grant.kind !== `${provider}-oauth`) return raw;
   if (!grant.expiresAt || grant.expiresAt > Date.now() + 60000) return grant.accessToken;
@@ -102,12 +102,12 @@ async function refreshWorkflowToken(accounts: Accounts, userId: string, provider
   const token = await response.json() as any;
   if (!response.ok || (provider === 'slack' && token.ok !== true) || !token.access_token) throw new Error(`${provider === 'slack' ? 'Slack' : 'Notion'} authorization was revoked or expired. Reconnect it.`);
   const refreshed = { ...grant, accessToken: token.access_token, refreshToken: token.refresh_token || grant.refreshToken, expiresAt: token.expires_in ? Date.now() + token.expires_in * 1000 : 0 };
-  accounts.setConnection(userId, keys[provider], JSON.stringify(refreshed));
+  await accounts.setConnection(userId, keys[provider], JSON.stringify(refreshed));
   return refreshed.accessToken;
 }
 
 export async function workflowToken(accounts: Accounts, userId: string, provider: WorkflowProvider, config = workflowOauthConfig()[provider]) {
-  const raw = accounts.credentials(userId)[keys[provider]] || '';
+  const raw = (await accounts.credentials(userId))[keys[provider]] || '';
   const grant = parseGrant(raw);
   if (!grant || grant.kind !== `${provider}-oauth`) return raw;
   if (!grant.expiresAt || grant.expiresAt > Date.now() + 60000) return grant.accessToken;
@@ -116,7 +116,7 @@ export async function workflowToken(accounts: Accounts, userId: string, provider
 
 export async function disconnectWorkflow(accounts: Accounts, userId: string, provider: WorkflowProvider, config = workflowOauthConfig()[provider]) {
   return connectionLock(accounts, userId, provider, async () => {
-    const raw = accounts.credentials(userId)[keys[provider]] || '';
+    const raw = (await accounts.credentials(userId))[keys[provider]] || '';
     const grant = parseGrant(raw);
     if (grant?.kind === 'slack-oauth') {
       const response = await fetch('https://slack.com/api/auth.revoke', { method: 'POST', headers: { Accept: 'application/json', Authorization: `Bearer ${grant.accessToken}`, 'Content-Type': 'application/x-www-form-urlencoded' }, signal: AbortSignal.timeout(20000) });
@@ -128,7 +128,7 @@ export async function disconnectWorkflow(accounts: Accounts, userId: string, pro
       const response = await fetch('https://api.notion.com/v1/oauth/revoke', { method: 'POST', headers: { Accept: 'application/json', Authorization: basic(config), 'Content-Type': 'application/json', 'Notion-Version': '2026-03-11' }, body: JSON.stringify({ token: grant.accessToken }), signal: AbortSignal.timeout(20000) });
       if (!response.ok && response.status !== 400) throw new Error(`Notion could not revoke this connection: HTTP ${response.status}.`);
     }
-    accounts.setConnection(userId, keys[provider], '');
+    await accounts.setConnection(userId, keys[provider], '');
     return '';
   });
 }

@@ -31,7 +31,7 @@ export class SocialAuth {
     const config = this.config[provider];
     if (!config.clientId || !config.clientSecret) throw new Error(`${provider[0].toUpperCase()+provider.slice(1)} sign-in is not configured yet.`);
     const verifier = oidc.randomPKCECodeVerifier(), nonce = oidc.randomNonce();
-    const state = this.accounts.beginOauth(provider,verifier,nonce);
+    const state = await this.accounts.beginOauth(provider,verifier,nonce);
     const challenge = await oidc.calculatePKCECodeChallenge(verifier);
     const common = {client_id:config.clientId,redirect_uri:this.callback(provider),response_type:'code',state,code_challenge:challenge,code_challenge_method:'S256'};
     if (provider === 'github') return {state,url:new URL(`https://github.com/login/oauth/authorize?${new URLSearchParams({...common,scope:'read:user user:email'})}`)};
@@ -41,7 +41,7 @@ export class SocialAuth {
   async finish(provider:IdentityProvider, callbackUrl:URL, cookieState:string) {
     const state = callbackUrl.searchParams.get('state') || '';
     if (!state || state !== cookieState) throw new Error('The sign-in request did not match this browser. Please try again.');
-    const saved = this.accounts.consumeOauth(provider,state);
+    const saved = await this.accounts.consumeOauth(provider,state);
     if (!saved) throw new Error('The sign-in request expired or was already used. Please try again.');
     if (provider === 'github') {
       const input = new URLSearchParams({client_id:this.config.github.clientId,client_secret:this.config.github.clientSecret,code:callbackUrl.searchParams.get('code') || '',redirect_uri:this.callback(provider),code_verifier:saved.verifier});
