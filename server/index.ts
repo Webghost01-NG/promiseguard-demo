@@ -8,7 +8,7 @@ import { Store } from './store.ts';
 import { Providers, credentials } from './providers.ts';
 import { Coordinator } from './coordinator.ts';
 import { validateTargets } from './domain.ts';
-import { buildGrant, challenge, exchange, githubAppConfig, githubToken, grantMeta, verifier } from './github-connection.ts';
+import { buildGrant, challenge, disconnectGithub, exchange, githubAppConfig, githubToken, grantMeta, verifier } from './github-connection.ts';
 
 process.umask(0o077);
 
@@ -101,25 +101,32 @@ export function createApp(path = 'data/promiseguard.sqlite', key?: Buffer, port 
           }
         }
         const githubConfig=githubAppConfig();
+        const authorizeGithub=(userId:string,sessionToken:string,installationId:number,sessionHash?:string)=>{
+          const codeVerifier=verifier();
+          const state=accounts.beginConnectionOauth(userId,sessionToken,'github-authorize',codeVerifier,String(installationId),sessionHash);
+          const callback=`${requestOrigin}/api/connections/github/callback`;
+          const target=new URL('https://github.com/login/oauth/authorize');
+          target.search=new URLSearchParams({client_id:githubConfig.clientId,redirect_uri:callback,state,code_challenge:challenge(codeVerifier),code_challenge_method:'S256'}).toString();
+          res.setHeader('Set-Cookie',`pg_connect_oauth=${state}; HttpOnly; SameSite=Lax; Path=/api/connections/github; Max-Age=600${publicOrigin?'; Secure':''}`);
+          res.writeHead(302,{Location:target.href,'Cache-Control':'no-store'});return res.end();
+        };
         if(req.method==='GET'&&url.pathname==='/api/connections/github/setup'){
           try{
             const state=url.searchParams.get('state')||'';if(!state||state!==connectionCookie)throw new Error('The GitHub installation did not match this browser.');
             const saved=accounts.consumeConnectionOauth('github-install',state);const installationId=url.searchParams.get('installation_id')||'';
             if(!saved||!/^\d+$/.test(installationId))throw new Error('The GitHub installation expired or was not completed.');
-            const codeVerifier=verifier();const next=accounts.beginConnectionOauth(saved.user_id,'','github-authorize',codeVerifier,installationId,saved.session_hash);
-            const callback=`${requestOrigin}/api/connections/github/callback`;
-            const target=new URL('https://github.com/login/oauth/authorize');target.search=new URLSearchParams({client_id:githubConfig.clientId,redirect_uri:callback,state:next,code_challenge:challenge(codeVerifier),code_challenge_method:'S256'}).toString();
-            res.setHeader('Set-Cookie',`pg_connect_oauth=${next}; HttpOnly; SameSite=Lax; Path=/api/connections/github; Max-Age=600${publicOrigin?'; Secure':''}`);res.writeHead(302,{Location:target.href,'Cache-Control':'no-store'});return res.end();
-          }catch(error){res.writeHead(302,{Location:`/?connection_error=${encodeURIComponent((error as Error).message.slice(0,300))}`});return res.end();}
+            return authorizeGithub(saved.user_id,'',Number(installationId),saved.session_hash);
+          }catch(error){res.setHeader('Set-Cookie',`pg_connect_oauth=; HttpOnly; SameSite=Lax; Path=/api/connections/github; Max-Age=0${publicOrigin?'; Secure':''}`);res.writeHead(302,{Location:`/?connection_error=${encodeURIComponent((error as Error).message.slice(0,300))}`});return res.end();}
         }
         if(req.method==='GET'&&url.pathname==='/api/connections/github/callback'){
           try{
             const state=url.searchParams.get('state')||'';if(!state||state!==connectionCookie)throw new Error('The GitHub authorization did not match this browser.');
             const saved=accounts.consumeConnectionOauth('github-authorize',state);if(!saved)throw new Error('The GitHub authorization expired or was already used.');
+            if(url.searchParams.get('error'))throw new Error('GitHub authorization was cancelled. Your existing connection was unchanged.');
             const grant=await buildGrant(await exchange(url.searchParams.get('code')||'',saved.verifier,`${requestOrigin}/api/connections/github/callback`,githubConfig),Number(saved.installation_id));
             accounts.setConnection(saved.user_id,'GITHUB_TOKEN',JSON.stringify(grant));
             res.setHeader('Set-Cookie',`pg_connect_oauth=; HttpOnly; SameSite=Lax; Path=/api/connections/github; Max-Age=0${publicOrigin?'; Secure':''}`);res.writeHead(302,{Location:'/?connection=github','Cache-Control':'no-store'});return res.end();
-          }catch(error){res.writeHead(302,{Location:`/?connection_error=${encodeURIComponent((error as Error).message.slice(0,300))}`});return res.end();}
+          }catch(error){res.setHeader('Set-Cookie',`pg_connect_oauth=; HttpOnly; SameSite=Lax; Path=/api/connections/github; Max-Age=0${publicOrigin?'; Secure':''}`);res.writeHead(302,{Location:`/?connection_error=${encodeURIComponent((error as Error).message.slice(0,300))}`});return res.end();}
         }
         if (req.method !== 'GET' && (!allowedOrigins.includes(req.headers.origin || '') || !req.headers['content-type']?.startsWith('application/json'))) return json(res, 403, {error:'Same-origin JSON request required.'});
         if (req.method === 'POST' && url.pathname === '/api/login') {
@@ -148,8 +155,10 @@ export function createApp(path = 'data/promiseguard.sqlite', key?: Buffer, port 
         }
         const user = accounts.session(token);
         if (!user) return json(res, 401, {error:'Sign in to your workspace.'});
-        if(req.method==='GET'&&url.pathname==='/api/connections/github/start'){
+        if(req.method==='GET'&&(url.pathname==='/api/connections/github/start'||url.pathname==='/api/connections/github/repositories')){
           if(!githubConfig.clientId||!githubConfig.clientSecret||!githubConfig.slug)throw new Error('GitHub App connection is not configured.');
+          const existing=grantMeta(accounts.credentials(user.id).GITHUB_TOKEN||'');
+          if(existing&&url.pathname==='/api/connections/github/start')return authorizeGithub(user.id,token,existing.installationId);
           const state=accounts.beginConnectionOauth(user.id,token,'github-install');
           res.setHeader('Set-Cookie',`pg_connect_oauth=${state}; HttpOnly; SameSite=Lax; Path=/api/connections/github; Max-Age=600${publicOrigin?'; Secure':''}`);
           res.writeHead(302,{Location:`https://github.com/apps/${encodeURIComponent(githubConfig.slug)}/installations/new?state=${state}`,'Cache-Control':'no-store'});return res.end();
@@ -168,6 +177,11 @@ export function createApp(path = 'data/promiseguard.sqlite', key?: Buffer, port 
           if (!(connectionKeys as readonly string[]).includes(input.provider) || typeof input.token !== 'string' || input.token.length > 8000) throw new Error('Invalid connection.');
           accounts.setConnection(user.id, input.provider, input.token.trim());
           return json(res, 200, {ok:true});
+        }
+        if(req.method==='POST'&&url.pathname==='/api/connections/github/disconnect'){
+          if(coordinator.busy||store.list().some(r=>['review','partial'].includes(r.status)))throw new Error('Finish or dismiss the current run before changing connections.');
+          await disconnectGithub(accounts,user.id,githubConfig);
+          return json(res,200,{ok:true});
         }
         if (req.method === 'GET' && url.pathname === '/api/bootstrap') {const creds=providers.getCredentials();return json(res, 200, { session, user: {id:user.id,name:user.name}, configured: Object.fromEntries(Object.entries(creds).map(([key, value]) => [key, Boolean(value)])), githubConnection:grantMeta(creds.GITHUB_TOKEN), targets: store.setting('targets'), runs: store.list() });}
         if (req.method === 'GET' && url.pathname === '/api/runs') {

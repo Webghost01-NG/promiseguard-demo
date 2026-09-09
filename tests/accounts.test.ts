@@ -102,7 +102,7 @@ test('missing encryption key fails closed instead of replacing keys for existing
 });
 test('HTTP authentication and ownership protect every workspace entry point', async () => {
   const dir=mkdtempSync(join(tmpdir(),'pg-http-'));const path=join(dir,'db');const {server,accounts}=createApp(path,randomBytes(32),0);
-  const alice=await accounts.create('alice',password);await accounts.create('bobby',password);
+  const alice=await accounts.create('alice',password);const bobby=await accounts.create('bobby',password);
   const owned=new Store(path,alice.id);owned.save(run());owned.setSetting('targets',{private:'alice'});owned.db.close();
   await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
   const addr=server.address() as {port:number};const base=`http://127.0.0.1:${addr.port}`;
@@ -123,6 +123,23 @@ test('HTTP authentication and ownership protect every workspace entry point', as
     assert.equal((await request('/api/connections/save','POST',{provider:'GITHUB_TOKEN',token:'synthetic-http-secret'},b.cookie,b.csrf)).status,200);
     const boot=await(await request('/api/bootstrap','GET',undefined,b.cookie)).json();assert.equal(boot.configured.GITHUB_TOKEN,true);assert.ok(!JSON.stringify(boot).includes('synthetic-http-secret'));
     const aboot=await(await request('/api/bootstrap','GET',undefined,a.cookie)).json();assert.equal(aboot.configured.GITHUB_TOKEN,false);
+    assert.equal((await request('/api/connections/github/disconnect','POST',{},b.cookie,b.csrf)).status,200);
+    assert.equal((await(await request('/api/bootstrap','GET',undefined,b.cookie)).json()).configured.GITHUB_TOKEN,false);
+    assert.equal((await(await request('/api/bootstrap','GET',undefined,a.cookie)).json()).configured.GITHUB_TOKEN,false);
+    accounts.setConnection(bobby.id,'GITHUB_TOKEN',JSON.stringify({kind:'github-app-user',accessToken:'hidden-access',refreshToken:'hidden-refresh',expiresAt:Date.now()+3600000,refreshExpiresAt:Date.now()+7200000,githubUserId:7,installationId:42,repositories:['unit/fixture']}));
+    const prior={id:process.env.GITHUB_APP_CLIENT_ID,secret:process.env.GITHUB_APP_CLIENT_SECRET,slug:process.env.GITHUB_APP_SLUG};
+    process.env.GITHUB_APP_CLIENT_ID='unit-client';process.env.GITHUB_APP_CLIENT_SECRET='unit-secret';process.env.GITHUB_APP_SLUG='unit-app';
+    try {
+      const reconnect=await request('/api/connections/github/start','GET',undefined,b.cookie);assert.equal(reconnect.status,302);assert.match(reconnect.headers.get('location')||'',/^https:\/\/github\.com\/login\/oauth\/authorize\?/);assert.match(reconnect.headers.get('location')||'',/code_challenge=/);
+      const reconnectUrl=new URL(reconnect.headers.get('location')!);const state=reconnectUrl.searchParams.get('state')!;const connectionCookie=(reconnect.headers.get('set-cookie')||'').split(';')[0];
+      const cancelled=await request(`/api/connections/github/callback?state=${state}&error=access_denied`,'GET',undefined,`${b.cookie}; ${connectionCookie}`);assert.equal(cancelled.status,302);assert.match(decodeURIComponent(cancelled.headers.get('location')||''),/connection_error=GitHub authorization was cancelled/);
+      const repositories=await request('/api/connections/github/repositories','GET',undefined,b.cookie);assert.equal(repositories.status,302);assert.match(repositories.headers.get('location')||'',/^https:\/\/github\.com\/apps\/unit-app\/installations\/new\?state=/);
+      const meta=await(await request('/api/bootstrap','GET',undefined,b.cookie)).json();assert.deepEqual(meta.githubConnection,{type:'github-app',repositories:['unit/fixture'],installationId:42});assert.ok(!JSON.stringify(meta).includes('hidden-access'));assert.ok(!JSON.stringify(meta).includes('hidden-refresh'));
+    } finally {
+      if(prior.id===undefined)delete process.env.GITHUB_APP_CLIENT_ID;else process.env.GITHUB_APP_CLIENT_ID=prior.id;
+      if(prior.secret===undefined)delete process.env.GITHUB_APP_CLIENT_SECRET;else process.env.GITHUB_APP_CLIENT_SECRET=prior.secret;
+      if(prior.slug===undefined)delete process.env.GITHUB_APP_SLUG;else process.env.GITHUB_APP_SLUG=prior.slug;
+    }
     assert.equal((await request('/api/logout','POST',{},b.cookie,b.csrf)).status,200);assert.equal((await request('/api/bootstrap','GET',undefined,b.cookie)).status,401);
     assert.equal((await request('/.env')).status,404);
   }finally{await new Promise<void>(resolve=>server.close(()=>resolve()));rmSync(dir,{recursive:true,force:true});}
