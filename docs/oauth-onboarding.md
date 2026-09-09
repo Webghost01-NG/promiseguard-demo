@@ -13,7 +13,7 @@ Users should sign in, connect GitHub, select repositories, and start a GitHub-on
 
 ## Required implementation
 
-1. Choose the hosting URL and register exact callback URLs with each provider.
+1. **Prepared:** deploy to an exact HTTPS origin using the Render Blueprint. The actual service URL and provider registration still require the owner's Render and GitHub accounts.
 2. **Implemented locally:** application sign-in and server-side sessions.
 3. Bind authorization state to the initiating session; validate callbacks and exchange codes on the server.
 4. **Implemented locally:** encrypted tokens per user and ownership checks on runs, connections, reads and approvals. OAuth grants still need provider installation identities and refresh metadata.

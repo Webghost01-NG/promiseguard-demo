@@ -5,6 +5,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { request as httpRequest } from 'node:http';
 import { Store } from '../server/store.ts';
 import { Accounts, encryptionKey } from '../server/accounts.ts';
 import { createApp } from '../server/index.ts';
@@ -93,4 +94,36 @@ test('terminal provisioning imports only into the named owner without printing t
     assert.match(output,/Created account cli-owner/);assert.ok(!output.includes(password));assert.ok(!output.includes('synthetic-cli-token'));
     const store=new Store(path);try{const user=store.db.prepare('SELECT id FROM users WHERE name=?').get('cli-owner') as {id:string};const accounts=new Accounts(store.db,encryptionKey(join(dir,'data','credentials.key'),store.db));assert.equal(accounts.credentials(user.id).GITHUB_TOKEN,'synthetic-cli-token');}finally{store.db.close();}
   }finally{rmSync(dir,{recursive:true,force:true});}
+});
+
+test('public runtime requires an exact HTTPS origin and secure session cookie', async () => {
+  const dir=mkdtempSync(join(tmpdir(),'pg-public-'));
+  const path=join(dir,'nested','promiseguard.sqlite');
+  assert.throws(()=>createApp(path,randomBytes(32),443,'http://example.test'),/HTTPS origin/);
+  assert.throws(()=>createApp(path,randomBytes(32),443,'https://user@example.test/path'),/HTTPS origin/);
+  const {server,accounts}=createApp(path,randomBytes(32),443,'https://promiseguard.example');
+  await accounts.create('public-user',password);
+  await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
+  const address=server.address() as {port:number};
+  const request=(path:string,method='GET',data?:unknown,host='promiseguard.example',origin='https://promiseguard.example')=>new Promise<{status:number;headers:Record<string,string|string[]|undefined>;body:any}>((resolve,reject)=>{
+    const payload=data === undefined ? '' : JSON.stringify(data);
+    const req=httpRequest({hostname:'127.0.0.1',port:address.port,path,method,headers:{Host:host,Origin:origin,...(payload?{'Content-Type':'application/json','Content-Length':Buffer.byteLength(payload)}:{})}},res=>{
+      let raw='';res.setEncoding('utf8');res.on('data',chunk=>raw+=chunk);res.on('end',()=>resolve({status:res.statusCode||0,headers:res.headers,body:JSON.parse(raw)}));
+    });
+    req.on('error',reject);if(payload)req.write(payload);req.end();
+  });
+  try {
+    const health=await request('/api/health');
+    assert.equal(health.status,200);
+    assert.deepEqual(health.body,{status:'ok'});
+    assert.equal(health.headers['strict-transport-security'],'max-age=31536000; includeSubDomains');
+    assert.equal((await request('/api/health','GET',undefined,'evil.example')).status,403);
+    const login=await request('/api/login','POST',{name:'public-user',password});
+    const cookies=login.headers['set-cookie'];
+    assert.equal((Array.isArray(cookies) ? cookies : [cookies || '']).some(value=>value.includes('; Secure')),true);
+    assert.equal((await request('/api/login','POST',{name:'public-user',password},'promiseguard.example','https://evil.example')).status,403);
+  } finally {
+    await new Promise<void>(resolve=>server.close(()=>resolve()));
+    rmSync(dir,{recursive:true,force:true});
+  }
 });
