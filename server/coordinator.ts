@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { planActions, planHash, type Run, type Targets } from './domain.ts';
-import { Providers, ProviderError, redact } from './providers.ts';
+import { Providers, ProviderError } from './providers.ts';
 import { Store } from './store.ts';
 
 export function requiresReconciliation(status: string) { return ['unknown', 'in_flight'].includes(status); }
@@ -30,7 +30,7 @@ export class Coordinator {
       run.status = run.assessment.decision === 'repair' ? 'review' : run.assessment.decision;
       this.event(run, run.status === 'review' ? `Evidence checked. Review ${run.actions.length} proposed change${run.actions.length === 1 ? '' : 's'} before execution.` : run.status === 'no_change' ? 'No repair proposed. No external changes were made.' : 'More context is needed. No external changes were made.');
     } catch (error) {
-      run.status = 'failed'; run.error = redact((error as Error).message);
+      run.status = 'failed'; run.error = this.providers.redact((error as Error).message);
       this.event(run, 'Analysis stopped. No external changes were made.');
     }
   }
@@ -92,7 +92,7 @@ export class Coordinator {
           this.event(run, `${action.provider}: change independently read back and verified.`);
         } catch (error) {
           action.status = action.externalId || !(error instanceof ProviderError) || error.uncertain ? 'unknown' : 'blocked';
-          action.error = redact((error as Error).message);
+          action.error = this.providers.redact((error as Error).message);
           throw error;
         }
       }
@@ -102,7 +102,7 @@ export class Coordinator {
       this.event(run, `All ${run.actions.length} planned change${run.actions.length === 1 ? '' : 's'} verified. The engineering blocker still needs resolution.`);
     } catch (error) {
       if (run.status !== 'stale') run.status = 'partial';
-      run.error = redact((error as Error).message);
+      run.error = this.providers.redact((error as Error).message);
       this.event(run, 'Execution paused. Verified progress is saved; completion has not been claimed.');
     }
   }

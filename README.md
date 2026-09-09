@@ -1,6 +1,6 @@
 # PromiseGuard
 
-A local commitment-reconciliation workspace using Gemini, GitHub, Notion, and Slack. It gathers linked evidence, proposes an exact repair for review, and verifies each approved external change. Current implementation uses access tokens for one operator; OAuth and multi-tenant hosting are not implemented.
+A local commitment-reconciliation workspace using Gemini, GitHub, Notion, and Slack. It gathers linked evidence, proposes an exact repair for review, and verifies each approved external change. Users sign in to separate workspaces with their own encrypted integration tokens. OAuth and public hosting are not implemented.
 
 ![PromiseGuard workspace showing a recorded, verified synthetic demonstration](docs/assets/workspace.png)
 
@@ -13,12 +13,13 @@ git clone https://github.com/Webghost01-NG/promiseguard-demo.git
 cd promiseguard-demo
 npm ci
 cp .env.example .env
-# Fill in .env before starting (see Credentials below).
+# Set GEMINI_API_KEY in .env (see Credentials below).
+bash scripts/setup-account.sh your-name
 npm run build
 npm start
 ```
 
-Open http://127.0.0.1:4317. The server binds only to loopback. Rebuild after editing frontend files; restart after server edits. Do not expose this local single-user server publicly.
+Open http://127.0.0.1:4317. The server binds only to loopback. Rebuild after editing frontend files; restart after server edits. This release remains loopback-only; do not expose it publicly.
 
 ## Credentials
 
@@ -26,7 +27,19 @@ Open http://127.0.0.1:4317. The server binds only to loopback. Rebuild after edi
 nano .env
 ```
 
-Fill in `GEMINI_API_KEY` and `GITHUB_TOKEN`. Add `NOTION_TOKEN` only for Notion commitments and `SLACK_BOT_TOKEN` only for Slack discussions. The file is Git-ignored and must remain private. Tokens are reloaded for provider requests, so saving updated tokens does not require a server restart. The browser receives credential presence and connection results, never the tokens themselves. Click Connections → Check connections to verify authentication. Gemini model-list access does not prove generation quota.
+Set the server’s `GEMINI_API_KEY` in `.env`. Sign in and save your own GitHub token in Connections. Add Notion and Slack only when needed. These tokens are encrypted in SQLite and scoped to your account; saved values are never returned to the browser. The server does not fall back to the operator’s GitHub, Notion or Slack environment tokens. Click Connections → Check connections to verify authentication. Gemini model-list access does not prove generation quota.
+
+## Existing local workspace
+
+Create your account and explicitly import the existing local records and `.env` workflow tokens once:
+
+```bash
+bash scripts/setup-account.sh webghost --claim-local
+```
+
+The command prompts for a password without displaying it. Use at least 12 characters. It assigns existing runs and settings without changing their stored plan content. Other accounts start empty. No browser can claim unassigned records. Omit `--claim-local` when provisioning additional accounts.
+
+Keep `data/credentials.key` together with a private backup of the SQLite database. Losing the key makes saved integration tokens unreadable. Accounts use salted scrypt password hashes, eight-hour server sessions, HttpOnly SameSite cookies, and sign-in rate limits. Sign-out revokes the session; already-approved background work continues. There is no password-reset UI or public registration in this phase.
 
 ## Prepare actual demo records
 
@@ -44,7 +57,7 @@ Enter the engineering issue URL, selected commitment source, owner, and Gemini m
 
 ## Execution and recovery
 
-SQLite stores evidence, versioned plan content, action state, returned record IDs, and verification observations in `data/`. Treat it as private workspace data; it is Git-ignored. Approval is bound to a hash of the plan, evidence, and targets. Source changes invalidate the plan. The server executes one run at a time, survives browser disconnects, and marks interrupted writes as unknown after a restart.
+SQLite stores evidence, versioned plan content, action state, returned record IDs, and verification observations in `data/`. Treat it as private workspace data; it is Git-ignored. Approval is bound to a hash of the plan, evidence, and targets. Source changes invalidate the plan. The server executes one run at a time per account, survives browser disconnects, and marks interrupted writes as unknown after a restart.
 
 An unknown write is reconciled against the original provider identity and exact target/content before any retry. Absence from a lookup never automatically authorizes repeating an ambiguous write. When ambiguity cannot be resolved, the run remains partial and new runs are blocked until the operator resolves the external state. This is a deliberate availability tradeoff to prevent blind duplication. There is no universal exactly-once or cross-app transaction guarantee.
 
@@ -67,7 +80,9 @@ Tests cover target restrictions, evidence grounding, immutable approval content,
 - `server/domain.ts`: target validation, evidence/plan types, grounded assessment checks.
 - `server/providers.ts`: real provider REST adapters, collection, analysis, writes and read-back.
 - `server/coordinator.ts`: approval, execution, recovery and completion rules.
-- `server/store.ts`: local SQLite persistence.
+- `server/store.ts`: owner-scoped SQLite persistence.
+- `server/accounts.ts`: credentials, sign-in sessions and explicit legacy import.
+- `scripts/setup-account.sh`: terminal account provisioning without exposing passwords.
 - `server/index.ts`: loopback HTTP server, same-origin/session checks, static frontend.
 - `tests/`: local invariant and persistence checks.
 
@@ -86,4 +101,4 @@ GitHub and Gemini are required. Notion and Slack are optional for each run.
 
 ![GitHub-only source selection](docs/assets/github-only.png)
 
-User OAuth onboarding is the next phase; see the [OAuth plan](docs/oauth-onboarding.md). The public repository publishes source code; it does not make the local server a hosted multi-user service.
+User sign-in and isolated workspaces are implemented. Provider OAuth onboarding is the next phase; see the [OAuth plan](docs/oauth-onboarding.md). The public repository publishes source code; it does not make the local server a hosted multi-user service.

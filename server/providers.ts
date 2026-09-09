@@ -8,9 +8,9 @@ export function credentials(): Record<string, string> {
   try { file = parseEnv(readFileSync('.env', 'utf8')); } catch { /* Missing credentials are surfaced by readiness. */ }
   return Object.fromEntries(keys.map(key => [key, (file[key] || process.env[key] || '').trim()]));
 }
-export function redact(message: string) {
+export function redact(message: string, secrets = credentials()) {
   let text = message;
-  for (const secret of Object.values(credentials())) if (secret) text = text.replaceAll(secret, '[redacted]');
+  for (const secret of Object.values(secrets)) if (secret) text = text.replaceAll(secret, '[redacted]');
   return text.slice(0, 1200);
 }
 export class ProviderError extends Error {
@@ -21,6 +21,11 @@ function richText(parts: Json[] = []) { return parts.map(part => part.plain_text
 function blockText(block: Json) { return richText(block[block.type]?.rich_text); }
 
 export class Providers {
+  constructor(public getCredentials: () => Record<string,string> = credentials) {}
+  redact(message: string) {
+    try { return redact(message, this.getCredentials()); }
+    catch { return 'Connection credentials could not be read. Restore the credential key and database together.'; }
+  }
   async request(provider: 'GitHub' | 'Notion' | 'Slack' | 'Gemini', path: string, method = 'GET', body?: unknown): Promise<Json> {
     const config = {
       GitHub: { host: 'https://api.github.com', key: 'GITHUB_TOKEN' },
@@ -28,8 +33,8 @@ export class Providers {
       Slack: { host: 'https://slack.com/api', key: 'SLACK_BOT_TOKEN' },
       Gemini: { host: 'https://generativelanguage.googleapis.com/v1beta', key: 'GEMINI_API_KEY' },
     }[provider];
-    const token = credentials()[config.key];
-    if (!token) throw new ProviderError(`Add ${config.key} to .env, save, and check connections again.`);
+    const token = this.getCredentials()[config.key];
+    if (!token) throw new ProviderError(provider === 'Gemini' ? 'Ask the server operator to configure GEMINI_API_KEY.' : `Connect ${provider} in Connections and check access again.`);
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (provider === 'Gemini') headers['x-goog-api-key'] = token;
     else headers.Authorization = `Bearer ${token}`;
@@ -52,7 +57,7 @@ export class Providers {
         missing_scope: 'The bot is missing a required permission. Add the channel history scope to the Slack app and reinstall it in the workspace.',
       };
       if (provider === 'Slack' && slackHints[code]) throw new ProviderError(`Slack: ${safeCode}. ${slackHints[code]}`);
-      const detail = provider === 'Gemini' && typeof data.error?.message === 'string' ? ` ${redact(data.error.message)}` : '';
+      const detail = provider === 'Gemini' && typeof data.error?.message === 'string' ? ` ${this.redact(data.error.message)}` : '';
       throw new ProviderError(`${provider}: ${safeCode}.${detail}${hint} Check the token, resource access, and provider quota.`, method !== 'GET' && (response.status >= 500 || ['internal_error', 'fatal_error'].includes(code)));
     }
     return data;
@@ -110,12 +115,12 @@ export class Providers {
       ['Slack', 'SLACK_BOT_TOKEN', '/auth.test'], ['Gemini', 'GEMINI_API_KEY', '/models?pageSize=100'],
     ] as const;
     return Promise.all(checks.map(async ([provider, key, path]) => {
-      if (!credentials()[key]) return { provider, status: 'missing', detail: `Add ${key} to .env.` };
+      if (!this.getCredentials()[key]) return { provider, status: 'missing', detail: provider === 'Gemini' ? 'The server operator must configure GEMINI_API_KEY.' : `Connect ${provider} to use it.` };
       try {
         const data = await this.request(provider, path);
         const models = provider === 'Gemini' ? (data.models || []).filter((m: Json) => m.supportedGenerationMethods?.includes('generateContent')).map((m: Json) => ({ id: m.name.replace('models/', ''), name: m.displayName })) : undefined;
         return { provider, status: 'connected', detail: provider === 'GitHub' ? `Signed in as ${data.login}` : provider === 'Slack' ? `Workspace: ${data.team}` : provider === 'Notion' ? `Connection: ${data.name || 'authorized'}` : 'API key accepted. Model quota is checked when analyzing.', models };
-      } catch (error) { return { provider, status: 'error', detail: redact((error as Error).message) }; }
+      } catch (error) { return { provider, status: 'error', detail: this.redact((error as Error).message) }; }
     }));
   }
   async collect(targets: Targets, run?: Run): Promise<Snapshot> {
