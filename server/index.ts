@@ -8,6 +8,7 @@ import { Store } from './store.ts';
 import { Providers, credentials } from './providers.ts';
 import { Coordinator } from './coordinator.ts';
 import { validateTargets } from './domain.ts';
+import { buildGrant, challenge, exchange, githubAppConfig, githubToken, grantMeta, verifier } from './github-connection.ts';
 
 process.umask(0o077);
 
@@ -42,7 +43,7 @@ export function createApp(path = 'data/promiseguard.sqlite', key?: Buffer, port 
     let value = contexts.get(owner);
     if (!value) {
       const store = new Store(path, owner);
-      const providers = new Providers(() => ({GITHUB_TOKEN:'', NOTION_TOKEN:'', SLACK_BOT_TOKEN:'', ...accounts.credentials(owner), GEMINI_API_KEY:credentials().GEMINI_API_KEY}));
+      const providers = new Providers(() => ({GITHUB_TOKEN:'', NOTION_TOKEN:'', SLACK_BOT_TOKEN:'', ...accounts.credentials(owner), GEMINI_API_KEY:credentials().GEMINI_API_KEY}),()=>githubToken(accounts,owner));
       value = {store, providers, coordinator:new Coordinator(store, providers)};
       contexts.set(owner, value);
     }
@@ -62,7 +63,7 @@ export function createApp(path = 'data/promiseguard.sqlite', key?: Buffer, port 
     if (!allowedHosts.includes(req.headers.host || '')) return json(res, 403, { error: 'Unexpected request host.' });
     if (req.headers.origin && !allowedOrigins.includes(req.headers.origin)) return json(res, 403, { error: 'Cross-origin requests are not allowed.' });
     const requestPath = new URL(req.url || '/', requestOrigin).pathname;
-    const oauthCallback = /^\/api\/auth\/(google|github|slack)\/callback$/.test(requestPath);
+    const oauthCallback = /^\/api\/auth\/(google|github|slack)\/callback$/.test(requestPath) || /^\/api\/connections\/github\/(setup|callback)$/.test(requestPath);
     const publicNavigation = req.method === 'GET'
       && !requestPath.startsWith('/api/')
       && req.headers['sec-fetch-mode'] === 'navigate'
@@ -74,6 +75,7 @@ export function createApp(path = 'data/promiseguard.sqlite', key?: Buffer, port 
         if (req.method === 'GET' && url.pathname === '/api/health') return json(res, 200, { status: 'ok' });
         const token = req.headers.cookie?.split(';').map(s => s.trim()).find(s => s.startsWith('pg_session='))?.slice(11) || '';
         const oauthCookie = req.headers.cookie?.split(';').map(s => s.trim()).find(s => s.startsWith('pg_oauth='))?.slice(9) || '';
+        const connectionCookie = req.headers.cookie?.split(';').map(s=>s.trim()).find(s=>s.startsWith('pg_connect_oauth='))?.slice(17)||'';
         if (req.method === 'GET' && url.pathname === '/api/auth/providers') return json(res, 200, socialAuth.available());
         const authRoute = url.pathname.match(/^\/api\/auth\/(google|github|slack)\/(start|callback)$/);
         if (req.method === 'GET' && authRoute) {
@@ -97,6 +99,27 @@ export function createApp(path = 'data/promiseguard.sqlite', key?: Buffer, port 
             res.setHeader('Set-Cookie',`pg_oauth=; HttpOnly; SameSite=Lax; Path=/api/auth; Max-Age=0${publicOrigin ? '; Secure' : ''}`);
             res.writeHead(302,{Location:`/?auth_error=${message}`,'Cache-Control':'no-store'}); return res.end();
           }
+        }
+        const githubConfig=githubAppConfig();
+        if(req.method==='GET'&&url.pathname==='/api/connections/github/setup'){
+          try{
+            const state=url.searchParams.get('state')||'';if(!state||state!==connectionCookie)throw new Error('The GitHub installation did not match this browser.');
+            const saved=accounts.consumeConnectionOauth('github-install',state);const installationId=url.searchParams.get('installation_id')||'';
+            if(!saved||!/^\d+$/.test(installationId))throw new Error('The GitHub installation expired or was not completed.');
+            const codeVerifier=verifier();const next=accounts.beginConnectionOauth(saved.user_id,'','github-authorize',codeVerifier,installationId,saved.session_hash);
+            const callback=`${requestOrigin}/api/connections/github/callback`;
+            const target=new URL('https://github.com/login/oauth/authorize');target.search=new URLSearchParams({client_id:githubConfig.clientId,redirect_uri:callback,state:next,code_challenge:challenge(codeVerifier),code_challenge_method:'S256'}).toString();
+            res.setHeader('Set-Cookie',`pg_connect_oauth=${next}; HttpOnly; SameSite=Lax; Path=/api/connections/github; Max-Age=600${publicOrigin?'; Secure':''}`);res.writeHead(302,{Location:target.href,'Cache-Control':'no-store'});return res.end();
+          }catch(error){res.writeHead(302,{Location:`/?connection_error=${encodeURIComponent((error as Error).message.slice(0,300))}`});return res.end();}
+        }
+        if(req.method==='GET'&&url.pathname==='/api/connections/github/callback'){
+          try{
+            const state=url.searchParams.get('state')||'';if(!state||state!==connectionCookie)throw new Error('The GitHub authorization did not match this browser.');
+            const saved=accounts.consumeConnectionOauth('github-authorize',state);if(!saved)throw new Error('The GitHub authorization expired or was already used.');
+            const grant=await buildGrant(await exchange(url.searchParams.get('code')||'',saved.verifier,`${requestOrigin}/api/connections/github/callback`,githubConfig),Number(saved.installation_id));
+            accounts.setConnection(saved.user_id,'GITHUB_TOKEN',JSON.stringify(grant));
+            res.setHeader('Set-Cookie',`pg_connect_oauth=; HttpOnly; SameSite=Lax; Path=/api/connections/github; Max-Age=0${publicOrigin?'; Secure':''}`);res.writeHead(302,{Location:'/?connection=github','Cache-Control':'no-store'});return res.end();
+          }catch(error){res.writeHead(302,{Location:`/?connection_error=${encodeURIComponent((error as Error).message.slice(0,300))}`});return res.end();}
         }
         if (req.method !== 'GET' && (!allowedOrigins.includes(req.headers.origin || '') || !req.headers['content-type']?.startsWith('application/json'))) return json(res, 403, {error:'Same-origin JSON request required.'});
         if (req.method === 'POST' && url.pathname === '/api/login') {
@@ -125,6 +148,12 @@ export function createApp(path = 'data/promiseguard.sqlite', key?: Buffer, port 
         }
         const user = accounts.session(token);
         if (!user) return json(res, 401, {error:'Sign in to your workspace.'});
+        if(req.method==='GET'&&url.pathname==='/api/connections/github/start'){
+          if(!githubConfig.clientId||!githubConfig.clientSecret||!githubConfig.slug)throw new Error('GitHub App connection is not configured.');
+          const state=accounts.beginConnectionOauth(user.id,token,'github-install');
+          res.setHeader('Set-Cookie',`pg_connect_oauth=${state}; HttpOnly; SameSite=Lax; Path=/api/connections/github; Max-Age=600${publicOrigin?'; Secure':''}`);
+          res.writeHead(302,{Location:`https://github.com/apps/${encodeURIComponent(githubConfig.slug)}/installations/new?state=${state}`,'Cache-Control':'no-store'});return res.end();
+        }
         if (req.method !== 'GET' && req.headers['x-promiseguard-session'] !== user.csrf) return json(res, 403, {error:'Refresh the page before making changes.'});
         if (req.method === 'POST' && url.pathname === '/api/logout') {
           accounts.logout(token);
@@ -140,7 +169,7 @@ export function createApp(path = 'data/promiseguard.sqlite', key?: Buffer, port 
           accounts.setConnection(user.id, input.provider, input.token.trim());
           return json(res, 200, {ok:true});
         }
-        if (req.method === 'GET' && url.pathname === '/api/bootstrap') return json(res, 200, { session, user: {id:user.id,name:user.name}, configured: Object.fromEntries(Object.entries(providers.getCredentials()).map(([key, value]) => [key, Boolean(value)])), targets: store.setting('targets'), runs: store.list() });
+        if (req.method === 'GET' && url.pathname === '/api/bootstrap') {const creds=providers.getCredentials();return json(res, 200, { session, user: {id:user.id,name:user.name}, configured: Object.fromEntries(Object.entries(creds).map(([key, value]) => [key, Boolean(value)])), githubConnection:grantMeta(creds.GITHUB_TOKEN), targets: store.setting('targets'), runs: store.list() });}
         if (req.method === 'GET' && url.pathname === '/api/runs') {
           if (req.headers['x-promiseguard-session'] !== session) return json(res, 403, {error:'Refresh after switching accounts.'});
           return json(res, 200, store.list());
