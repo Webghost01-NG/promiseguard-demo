@@ -94,9 +94,7 @@ export async function exchange(code: string, codeVerifier: string, redirectUri: 
 export async function buildGrant(token: any, installation: number | number[] = 0): Promise<GithubGrant> {
   const user = await github('/user', token.access_token);
   let installationIds = Array.isArray(installation) ? installation : installation > 0 ? [installation] : [];
-  if (installationIds.length) {
-    for (const installationId of installationIds) await github(`/user/installations/${installationId}`, token.access_token);
-  } else {
+  if (!installationIds.length) {
     for (let page = 1; ; page++) {
       const result = await github(`/user/installations?per_page=100&page=${page}`, token.access_token);
       const pageIds = (result.installations || []).map((item: any) => Number(item.id)).filter((id: number) => Number.isSafeInteger(id) && id > 0);
