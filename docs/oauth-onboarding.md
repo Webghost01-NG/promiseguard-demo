@@ -27,4 +27,4 @@ GitHub and Gemini are required for analysis. Notion and Slack are optional and o
 
 The deployed URL and registered app credentials are prerequisites for working redirects. Missing providers are shown as setup pending while configured providers remain usable. Legacy run ownership is assigned only by the explicit terminal import command.
 
-Password derivation and authenticated token encryption use [Node crypto](https://nodejs.org/api/crypto.html). This local foundation still needs HTTPS deployment settings, provider callbacks and real OAuth lifecycle verification before public use.
+Password derivation and authenticated token encryption use [Node crypto](https://nodejs.org/api/crypto.html). The production Render origin, provider callbacks, secure cookies, and OAuth start flows are configured and verified; the current production evidence and remaining limits are recorded in the [reliability brief](reliability.md).

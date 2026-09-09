@@ -97,6 +97,8 @@ Verified actions are rechecked on resume. Notion stale-field checks are best eff
 
 Gemini returns a bounded classification and exact source quotations. Code validates source references, quotes, and required evidence, but cannot prove the model's semantic inference. Operator review remains required. An open GitHub issue by itself does not establish a broken commitment.
 
+See the [architecture and reliability brief](docs/reliability.md) for the trust boundaries, failure matrix, measured Gemini evaluation, production security controls, and known limits. The current command and live-service results are tracked in [verification status](docs/verification.md).
+
 ## Checks
 
 ```bash
