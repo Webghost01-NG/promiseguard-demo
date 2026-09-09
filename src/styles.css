@@ -381,25 +381,46 @@ footer { display: flex; align-items: center; gap: 25px; justify-content: space-b
 .source-options input, .optional-toggle input { width: 15px; height: 15px; flex-shrink: 0; margin: 2px 0 0; accent-color: var(--accent); }
 .optional-toggle { margin: 8px 0 18px; padding: 10px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); cursor: pointer; }
 
-.signin { max-width: 520px; padding: 36px 24px; margin: 5vh auto; }
-.signin section { margin-top: 55px; }
-.signin h1 { font-size: clamp(32px, 7vw, 48px); letter-spacing: -2px; margin: 18px 0; }
-.signin section > p { color: var(--muted); line-height: 1.7; }
-.signin form { margin-top: 28px; }
-.signin label, .connection-form label { display: block; font-size: 12px; margin: 18px 0 8px; }
-.signin input, .connection-form input { width: 100%; border: 1px solid var(--line); border-radius: 4px; padding: 12px; background: var(--paper); color: inherit; }
-.signin .primary { margin-top: 24px; }
-.social-auth { display: grid; gap: 10px; margin-top: 28px; }
-.social-button { min-height: 46px; display: flex; align-items: center; gap: 12px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 4px; color: var(--ink); background: var(--paper); font-size: 12px; font-weight: 700; text-decoration: none; }
-.social-button:hover { border-color: var(--ink); }
-.social-button.unavailable { color: var(--muted); background: #f5f3ee; cursor: not-allowed; }
-.social-button.unavailable:hover { border-color: var(--line); }
-.auth-divider { display: flex; align-items: center; gap: 14px; margin: 25px 0 0; color: var(--muted); font-size: 10px; letter-spacing: 1px; text-transform: uppercase; }
-.auth-divider::before, .auth-divider::after { content: ''; height: 1px; background: var(--line); flex: 1; }
-.auth-divider + form { margin-top: 0; }
-.auth-switch { width: 100%; border: 0; background: transparent; color: var(--muted); margin-top: 16px; padding: 6px; font-size: 11px; text-decoration: underline; cursor: pointer; }
-.auth-legal { margin: 22px auto 0; max-width: 390px; text-align: center; font-size: 10px; color: var(--muted); }
+.signin { width: 100%; max-width: none; min-height: 100vh; min-height: 100svh; margin: 0; padding: 42px 20px 28px; display: flex; flex-direction: column; align-items: center; justify-content: center; background: radial-gradient(circle at 50% 18%, #30352f 0, #1c201c 34%, #131512 74%); color: var(--ink); }
+.auth-card { width: min(100%, 460px); overflow: hidden; border: 1px solid #3e443c; border-radius: 17px; background: #fffefa; box-shadow: 0 28px 80px #05060573, 0 2px 8px #05060552; }
+.auth-card-content { padding: 32px 42px 26px; }
+.auth-brand { width: max-content; margin: 0 auto; font-size: 19px; letter-spacing: -.7px; }
+.auth-brand .brand-mark { width: 28px; height: 28px; margin-right: 8px; border-radius: 7px 7px 7px 0; font-size: 23px; }
+.auth-heading { margin: 30px 0 0; text-align: center; }
+.auth-heading .eyebrow { font-size: 8px; letter-spacing: 1.2px; }
+.signin h1 { margin: 9px 0 8px; font-size: clamp(30px, 7vw, 39px); line-height: 1.08; letter-spacing: -1.9px; }
+.auth-heading p { max-width: 330px; margin: 0 auto; color: var(--muted); font-size: 12px; line-height: 1.7; }
+.auth-loading { margin: 40px 0 22px; text-align: center; color: var(--muted); font-size: 12px; }
+.social-auth { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; margin-top: 26px; }
+.social-button { min-height: 58px; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 9px 7px; border: 1px solid #d8d9d2; border-radius: 8px; color: var(--ink); background: #fff; font-size: 10px; font-weight: 650; text-decoration: none; }
+.social-button:hover { border-color: #8c9088; background: #f8f7f2; text-decoration: none; transform: translateY(-1px); }
+.social-button .provider-icon { width: 26px; height: 26px; font-size: 18px; }
+.social-button .provider-icon svg { width: 19px; height: 19px; }
+.social-button.unavailable { color: #8b8e87; background: #f2f1ed; cursor: not-allowed; }
+.social-button.unavailable:hover { border-color: #d8d9d2; transform: none; }
+.auth-divider { display: flex; align-items: center; gap: 13px; margin: 24px 0 0; color: #858980; font-size: 9px; letter-spacing: .8px; text-transform: uppercase; }
+.auth-divider::before, .auth-divider::after { content: ''; height: 1px; background: #dedfd8; flex: 1; }
+.auth-form { margin-top: 20px; }
+.signin label, .connection-form label { display: block; font-size: 11px; margin: 15px 0 7px; }
+.signin input, .connection-form input { width: 100%; border: 1px solid #d6d8d0; border-radius: 7px; padding: 12px 13px; background: #fff; color: inherit; }
+.signin input { min-height: 45px; margin-bottom: 0; font-size: 12px; }
+.signin input:focus { border-color: #6c7367; box-shadow: 0 0 0 3px #dfe3d938; }
+.auth-submit { width: 100%; min-height: 47px; display: flex; align-items: center; justify-content: center; gap: 13px; margin-top: 24px; border: 1px solid #232821; border-radius: 7px; background: #252b24; color: #fff; font-size: 11px; font-weight: 700; }
+.auth-submit:hover:not(:disabled) { background: var(--accent); border-color: var(--accent); }
+.signin .alert { margin: 16px 0 0; padding: 11px 12px; font-size: 10px; line-height: 1.5; }
+.auth-legal { margin: 18px auto 0; max-width: 340px; text-align: center; font-size: 9px; line-height: 1.6; color: var(--muted); }
 .auth-legal a { text-decoration: underline; text-underline-offset: 3px; }
+.auth-card-footer { min-height: 58px; display: flex; align-items: center; justify-content: center; gap: 5px; padding: 14px 24px; border-top: 1px solid #e0e1da; background: #f4f3ef; color: var(--muted); font-size: 11px; }
+.auth-switch { border: 0; background: transparent; color: var(--ink); padding: 3px; font-size: inherit; font-weight: 650; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.auth-footnote { margin: 18px 0 0; color: #aeb4aa; font-family: "SFMono-Regular", Consolas, monospace; font-size: 9px; letter-spacing: 1px; text-transform: uppercase; }
+@media (max-width: 520px) {
+  .signin { justify-content: flex-start; padding: 18px 12px; }
+  .auth-card { border-radius: 13px; }
+  .auth-card-content { padding: 26px 22px 22px; }
+  .auth-heading { margin-top: 24px; }
+  .social-button { min-height: 56px; flex-direction: column; gap: 3px; }
+  .auth-card-footer { flex-wrap: wrap; }
+}
 .connection-buttons { display: flex; gap: 16px; align-items: center; margin-top: 12px; }
 .workspace-identity > div { max-width: 140px; overflow-wrap: anywhere; }
 @media (max-width: 850px) {
