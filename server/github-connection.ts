@@ -133,7 +133,7 @@ export function grantMeta(raw: string) {
 }
 
 async function refreshGithubToken(accounts: Accounts, userId: string, config: GithubConfig) {
-  const raw = accounts.credentials(userId).GITHUB_TOKEN || '';
+  const raw = (await accounts.credentials(userId)).GITHUB_TOKEN || '';
   const grant = parseGrant(raw);
   if (!grant) return raw;
   if (grant.expiresAt > Date.now() + 60000) return grant.accessToken;
@@ -154,12 +154,12 @@ async function refreshGithubToken(accounts: Accounts, userId: string, config: Gi
   if (!response.ok || !token.access_token) throw new Error('GitHub authorization was revoked or expired. Reconnect GitHub.');
   const refreshed = await buildGrant(token, grant.installationIds?.length ? grant.installationIds : grant.installationId);
   if (refreshed.githubUserId !== grant.githubUserId) throw new Error('GitHub connection identity changed. Reconnect GitHub.');
-  accounts.setConnection(userId, 'GITHUB_TOKEN', JSON.stringify(refreshed));
+  await accounts.setConnection(userId, 'GITHUB_TOKEN', JSON.stringify(refreshed));
   return refreshed.accessToken;
 }
 
 export async function githubToken(accounts: Accounts, userId: string, config = githubAppConfig()) {
-  const raw = accounts.credentials(userId).GITHUB_TOKEN || '';
+  const raw = (await accounts.credentials(userId)).GITHUB_TOKEN || '';
   const grant = parseGrant(raw);
   if (!grant) return raw;
   if (grant.expiresAt > Date.now() + 60000) return grant.accessToken;
@@ -168,7 +168,7 @@ export async function githubToken(accounts: Accounts, userId: string, config = g
 
 export async function disconnectGithub(accounts: Accounts, userId: string, config = githubAppConfig()) {
   return grantLock(accounts, userId, async () => {
-    const raw = accounts.credentials(userId).GITHUB_TOKEN || '';
+    const raw = (await accounts.credentials(userId)).GITHUB_TOKEN || '';
     const grant = parseGrant(raw);
     if (grant) {
       if (!config.clientId || !config.clientSecret) throw new Error('GitHub App connection is not configured.');
@@ -189,7 +189,7 @@ export async function disconnectGithub(accounts: Accounts, userId: string, confi
         throw new Error(`GitHub could not revoke this authorization: ${message}`);
       }
     }
-    accounts.setConnection(userId, 'GITHUB_TOKEN', '');
+    await accounts.setConnection(userId, 'GITHUB_TOKEN', '');
     return '';
   });
 }

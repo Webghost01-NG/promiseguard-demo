@@ -99,26 +99,26 @@ test('approval hash binds action content, evidence and targets, not mutable prog
 test('Slack generated text cannot introduce special mention markup', () => {
   assert.equal(slackText('<!channel> & <@U123>'), '&lt;!channel&gt; &amp; &lt;@U123&gt;');
 });
-test('SQLite recovery preserves verified writes and marks interrupted writes unknown', () => {
-  const store = new Store(':memory:');
+test('SQLite recovery preserves verified writes and marks interrupted writes unknown', async () => {
+  const store = await Store.open(':memory:');
   const run = fixture(); run.actions = planActions(run); run.status = 'executing';
   run.actions[0].status = 'verified'; run.actions[0].externalId = 'unit-comment';
   run.actions[1].status = 'in_flight';
-  store.save(run); store.recover();
-  const recovered = store.get(run.id);
+  await store.save(run); await store.recover();
+  const recovered = await store.get(run.id);
   assert.equal(recovered.status, 'partial');
   assert.equal(recovered.actions[0].externalId, 'unit-comment');
   assert.equal(recovered.actions[0].status, 'verified');
   assert.equal(recovered.actions[1].status, 'unknown');
   assert.equal(recovered.actions[2].status, 'pending');
-  store.db.close();
+  await store.db.close();
 });
-test('interrupted analysis stops without leaving a permanently active run', () => {
-  const store = new Store(':memory:'); const run = fixture(); run.status = 'collecting';
-  store.save(run); store.recover();
-  assert.equal(store.get(run.id).status, 'failed');
-  assert.deepEqual(store.get(run.id).actions, []);
-  store.db.close();
+test('interrupted analysis stops without leaving a permanently active run', async () => {
+  const store = await Store.open(':memory:'); const run = fixture(); run.status = 'collecting';
+  await store.save(run); await store.recover();
+  assert.equal((await store.get(run.id)).status, 'failed');
+  assert.deepEqual((await store.get(run.id)).actions, []);
+  await store.db.close();
 });
 test('ambiguous writes must reconcile instead of being treated as fresh actions', () => {
   assert.equal(requiresReconciliation('unknown'), true);
@@ -206,14 +206,14 @@ test('changing the integration selection invalidates approval', () => {
   run.targets.slackChannel = ''; run.targets.slackThread = '';
   assert.notEqual(planHash(run), hash);
 });
-test('GitHub-only recovery preserves the single action without inventing other destinations', () => {
+test('GitHub-only recovery preserves the single action without inventing other destinations', async () => {
   const run = githubOnlyFixture(); run.actions = planActions(run); run.status = 'executing'; run.actions[0].status = 'in_flight';
-  const store = new Store(':memory:'); store.save(run); store.recover();
-  const recovered = store.get(run.id);
+  const store = await Store.open(':memory:'); await store.save(run); await store.recover();
+  const recovered = await store.get(run.id);
   assert.equal(recovered.status, 'partial');
   assert.equal(recovered.actions.length, 1);
   assert.equal(recovered.actions[0].status, 'unknown');
   assert.equal(recovered.snapshot!.notionStatus, undefined);
   assert.equal(recovered.snapshot!.slackActor, undefined);
-  store.db.close();
+  await store.db.close();
 });

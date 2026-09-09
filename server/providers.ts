@@ -77,9 +77,9 @@ export function groundCitationSelection(value: unknown, catalog: CitationCandida
 }
 
 export class Providers {
-  constructor(public getCredentials: () => Record<string,string> = credentials, private getProviderToken?:(key:string)=>Promise<string>) {}
-  redact(message: string) {
-    try { return redact(message, this.getCredentials()); }
+  constructor(public getCredentials: () => Record<string,string> | Promise<Record<string,string>> = credentials, private getProviderToken?:(key:string)=>Promise<string>) {}
+  async redact(message: string) {
+    try { return redact(message, await this.getCredentials()); }
     catch { return 'Connection credentials could not be read. Restore the credential key and database together.'; }
   }
   async request(provider: 'GitHub' | 'Notion' | 'Slack' | 'Gemini', path: string, method = 'GET', body?: unknown): Promise<Json> {
@@ -89,7 +89,7 @@ export class Providers {
       Slack: { host: 'https://slack.com/api', key: 'SLACK_BOT_TOKEN' },
       Gemini: { host: 'https://generativelanguage.googleapis.com/v1beta', key: 'GEMINI_API_KEY' },
     }[provider];
-    const token = provider !== 'Gemini' && this.getProviderToken ? await this.getProviderToken(config.key) : this.getCredentials()[config.key];
+    const token = provider !== 'Gemini' && this.getProviderToken ? await this.getProviderToken(config.key) : (await this.getCredentials())[config.key];
     if (!token) throw new ProviderError(provider === 'Gemini' ? 'Ask the server operator to configure GEMINI_API_KEY.' : `Connect ${provider} in Connections and check access again.`);
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (provider === 'Gemini') headers['x-goog-api-key'] = token;
@@ -113,7 +113,7 @@ export class Providers {
         missing_scope: 'The bot is missing a required permission. Add the channel history scope to the Slack app and reinstall it in the workspace.',
       };
       if (provider === 'Slack' && slackHints[code]) throw new ProviderError(`Slack: ${safeCode}. ${slackHints[code]}`);
-      const detail = provider === 'Gemini' && typeof data.error?.message === 'string' ? ` ${this.redact(data.error.message)}` : '';
+      const detail = provider === 'Gemini' && typeof data.error?.message === 'string' ? ` ${await this.redact(data.error.message)}` : '';
       throw new ProviderError(`${provider}: ${safeCode}.${detail}${hint} Check the token, resource access, and provider quota.`, method !== 'GET' && (response.status >= 500 || ['internal_error', 'fatal_error'].includes(code)));
     }
     return data;
@@ -166,17 +166,18 @@ export class Providers {
     throw new ProviderError('Notion page exceeds the evidence limit. Use a small demo commitment page.');
   }
   async connections() {
+    const credentials = await this.getCredentials();
     const checks = [
       ['GitHub', 'GITHUB_TOKEN', '/user'], ['Notion', 'NOTION_TOKEN', '/users/me'],
       ['Slack', 'SLACK_BOT_TOKEN', '/auth.test'], ['Gemini', 'GEMINI_API_KEY', '/models?pageSize=100'],
     ] as const;
     return Promise.all(checks.map(async ([provider, key, path]) => {
-      if (!this.getCredentials()[key]) return { provider, status: 'missing', detail: provider === 'Gemini' ? 'The server operator must configure GEMINI_API_KEY.' : `Connect ${provider} to use it.` };
+      if (!credentials[key]) return { provider, status: 'missing', detail: provider === 'Gemini' ? 'The server operator must configure GEMINI_API_KEY.' : `Connect ${provider} to use it.` };
       try {
         const data = await this.request(provider, path);
         const models = provider === 'Gemini' ? (data.models || []).filter((m: Json) => m.supportedGenerationMethods?.includes('generateContent')).map((m: Json) => ({ id: m.name.replace('models/', ''), name: m.displayName })) : undefined;
         return { provider, status: 'connected', detail: provider === 'GitHub' ? `Signed in as ${data.login}` : provider === 'Slack' ? `Workspace: ${data.team}` : provider === 'Notion' ? `Connection: ${data.name || 'authorized'}` : 'API key accepted. Model quota is checked when analyzing.', models };
-      } catch (error) { return { provider, status: 'error', detail: this.redact((error as Error).message) }; }
+      } catch (error) { return { provider, status: 'error', detail: await this.redact((error as Error).message) }; }
     }));
   }
   async collect(targets: Targets, run?: Run): Promise<Snapshot> {

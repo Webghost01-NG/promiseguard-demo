@@ -46,18 +46,18 @@ function deniedConnectionMessage(provider: WorkflowProvider | 'github') {
   return 'GitHub did not grant access. Authorize PromiseGuard and select at least one repository, then try again. Your existing connection was unchanged.';
 }
 
-export function createApp(path = 'data/promiseguard.sqlite', key?: Buffer, port = 4317, publicUrl = '') {
+export async function createApp(path = 'data/promiseguard.sqlite', key?: Buffer, port = 4317, publicUrl = '', env: NodeJS.ProcessEnv = process.env) {
   const publicOrigin = externalOrigin(publicUrl);
-  const root = new Store(path);
-  const accounts = new Accounts(root.db, key || encryptionKey(join(resolve(path, '..'), 'credentials.key'), root.db));
+  const root = await Store.open(path, 'local', env);
+  const accounts = await Accounts.initialize(root.db, key || await encryptionKey(join(resolve(path, '..'), 'credentials.key'), root.db, env));
   let socialAuth: SocialAuth | undefined;
   const contexts = new Map<string, {store:Store;providers:Providers;coordinator:Coordinator}>();
   function context(owner: string) {
     let value = contexts.get(owner);
     if (!value) {
-      const store = new Store(path, owner);
+      const store = root.scoped(owner);
       const providers = new Providers(
-        () => ({GITHUB_TOKEN:'', NOTION_TOKEN:'', SLACK_BOT_TOKEN:'', ...accounts.credentials(owner), GEMINI_API_KEY:credentials().GEMINI_API_KEY}),
+        async () => ({GITHUB_TOKEN:'', NOTION_TOKEN:'', SLACK_BOT_TOKEN:'', ...await accounts.credentials(owner), GEMINI_API_KEY:credentials().GEMINI_API_KEY}),
         key => key === 'GITHUB_TOKEN' ? githubToken(accounts,owner) : key === 'NOTION_TOKEN' ? workflowToken(accounts,owner,'notion') : workflowToken(accounts,owner,'slack')
       );
       value = {store, providers, coordinator:new Coordinator(store, providers)};
@@ -65,7 +65,7 @@ export function createApp(path = 'data/promiseguard.sqlite', key?: Buffer, port 
     }
     return value;
   }
-  for (const row of root.db.prepare('SELECT DISTINCT owner FROM runs').all() as {owner:string}[]) context(row.owner).store.recover();
+  for (const row of await root.db.all<{owner:string}>('SELECT DISTINCT owner FROM runs')) await context(row.owner).store.recover();
   const server = createServer(async (req, res) => {
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Referrer-Policy', 'no-referrer');
@@ -104,7 +104,7 @@ export function createApp(path = 'data/promiseguard.sqlite', key?: Buffer, port 
               res.writeHead(302,{Location:started.url.href,'Cache-Control':'no-store'}); return res.end();
             }
             const result = await socialAuth.finish(provider,url,oauthCookie);
-            accounts.logout(token);
+            await accounts.logout(token);
             res.setHeader('Set-Cookie',[
               `pg_session=${result.token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800${publicOrigin ? '; Secure' : ''}`,
               `pg_oauth=; HttpOnly; SameSite=Lax; Path=/api/auth; Max-Age=0${publicOrigin ? '; Secure' : ''}`
@@ -117,9 +117,9 @@ export function createApp(path = 'data/promiseguard.sqlite', key?: Buffer, port 
           }
         }
         const githubConfig=githubAppConfig();
-        const authorizeGithub=(userId:string,sessionToken:string,installationId:number,sessionHash?:string)=>{
+        const authorizeGithub=async(userId:string,sessionToken:string,installationId:number,sessionHash?:string)=>{
           const codeVerifier=verifier();
-          const state=accounts.beginConnectionOauth(userId,sessionToken,'github-authorize',codeVerifier,String(installationId),sessionHash);
+          const state=await accounts.beginConnectionOauth(userId,sessionToken,'github-authorize',codeVerifier,String(installationId),sessionHash);
           const callback=`${requestOrigin}/api/connections/github/callback`;
           const target=new URL('https://github.com/login/oauth/authorize');
           target.search=new URLSearchParams({client_id:githubConfig.clientId,redirect_uri:callback,state,code_challenge:challenge(codeVerifier),code_challenge_method:'S256'}).toString();
@@ -129,26 +129,26 @@ export function createApp(path = 'data/promiseguard.sqlite', key?: Buffer, port 
         if(req.method==='GET'&&url.pathname==='/api/connections/github/setup'){
           try{
             const state=url.searchParams.get('state')||'';if(!state||state!==connectionCookie)throw new Error('The GitHub installation did not match this browser.');
-            const saved=accounts.consumeConnectionOauth('github-install',state);const installationId=url.searchParams.get('installation_id')||'';
+            const saved=await accounts.consumeConnectionOauth('github-install',state);const installationId=url.searchParams.get('installation_id')||'';
             if(!saved||!/^\d+$/.test(installationId))throw new Error('The GitHub installation expired or was not completed.');
-            return authorizeGithub(saved.user_id,'',Number(installationId),saved.session_hash);
+            return await authorizeGithub(saved.user_id,'',Number(installationId),saved.session_hash);
           }catch(error){res.setHeader('Set-Cookie',`pg_connect_oauth=; HttpOnly; SameSite=Lax; Path=/api/connections/github; Max-Age=0${publicOrigin?'; Secure':''}`);res.writeHead(302,{Location:connectionReturn('github',(error as Error).message)});return res.end();}
         }
         if(req.method==='GET'&&url.pathname==='/api/connections/github/callback'){
           try{
             const state=url.searchParams.get('state')||'';if(!state||state!==connectionCookie)throw new Error('The GitHub authorization did not match this browser.');
-            const saved=accounts.consumeConnectionOauth('github-authorize',state);if(!saved)throw new Error('The GitHub authorization expired or was already used.');
+            const saved=await accounts.consumeConnectionOauth('github-authorize',state);if(!saved)throw new Error('The GitHub authorization expired or was already used.');
             if(url.searchParams.get('error'))throw new Error(deniedConnectionMessage('github'));
             const exchanged=await exchange(url.searchParams.get('code')||'',saved.verifier,`${requestOrigin}/api/connections/github/callback`,githubConfig);
             let grant;
             try{grant=await buildGrant(exchanged,Number(saved.installation_id));}
             catch(error){
               if(!(error instanceof GithubInstallationRequired))throw error;
-              const installState=accounts.beginConnectionOauth(saved.user_id,'','github-install','','',saved.session_hash);
+              const installState=await accounts.beginConnectionOauth(saved.user_id,'','github-install','','',saved.session_hash);
               res.setHeader('Set-Cookie',`pg_connect_oauth=${installState}; HttpOnly; SameSite=Lax; Path=/api/connections/github; Max-Age=600${publicOrigin?'; Secure':''}`);
               res.writeHead(302,{Location:`https://github.com/apps/${encodeURIComponent(githubConfig.slug)}/installations/new?state=${installState}`,'Cache-Control':'no-store'});return res.end();
             }
-            accounts.setConnection(saved.user_id,'GITHUB_TOKEN',JSON.stringify(grant));
+            await accounts.setConnection(saved.user_id,'GITHUB_TOKEN',JSON.stringify(grant));
             res.setHeader('Set-Cookie',`pg_connect_oauth=; HttpOnly; SameSite=Lax; Path=/api/connections/github; Max-Age=0${publicOrigin?'; Secure':''}`);res.writeHead(302,{Location:'/?connection=github','Cache-Control':'no-store'});return res.end();
           }catch(error){res.setHeader('Set-Cookie',`pg_connect_oauth=; HttpOnly; SameSite=Lax; Path=/api/connections/github; Max-Age=0${publicOrigin?'; Secure':''}`);res.writeHead(302,{Location:connectionReturn('github',(error as Error).message)});return res.end();}
         }
@@ -158,11 +158,11 @@ export function createApp(path = 'data/promiseguard.sqlite', key?: Buffer, port 
           const provider=workflowProvider;
           try{
             const state=url.searchParams.get('state')||'';if(!state||state!==connectionCookie)throw new Error(`The ${provider === 'slack' ? 'Slack' : 'Notion'} connection did not match this browser.`);
-            const saved=accounts.consumeConnectionOauth(`${provider}-connect`,state);if(!saved)throw new Error(`The ${provider === 'slack' ? 'Slack' : 'Notion'} connection expired or was already used.`);
+            const saved=await accounts.consumeConnectionOauth(`${provider}-connect`,state);if(!saved)throw new Error(`The ${provider === 'slack' ? 'Slack' : 'Notion'} connection expired or was already used.`);
             if(url.searchParams.get('error'))throw new Error(deniedConnectionMessage(provider));
             const redirectUri=provider==='slack'?`${requestOrigin}/api/auth/slack/callback/connection`:`${requestOrigin}/api/connections/notion/callback`;
             const grant=await exchangeWorkflowCode(provider,url.searchParams.get('code')||'',redirectUri,workflowOauthConfig()[provider]);
-            accounts.setConnection(saved.user_id,provider==='slack'?'SLACK_BOT_TOKEN':'NOTION_TOKEN',JSON.stringify(grant));
+            await accounts.setConnection(saved.user_id,provider==='slack'?'SLACK_BOT_TOKEN':'NOTION_TOKEN',JSON.stringify(grant));
             res.setHeader('Set-Cookie',`pg_connect_oauth=; HttpOnly; SameSite=Lax; Path=/api; Max-Age=0${publicOrigin?'; Secure':''}`);res.writeHead(302,{Location:`/?connection=${provider}`,'Cache-Control':'no-store'});return res.end();
           }catch(error){res.setHeader('Set-Cookie',`pg_connect_oauth=; HttpOnly; SameSite=Lax; Path=/api; Max-Age=0${publicOrigin?'; Secure':''}`);res.writeHead(302,{Location:connectionReturn(provider,(error as Error).message)});return res.end();}
         }
@@ -172,7 +172,7 @@ export function createApp(path = 'data/promiseguard.sqlite', key?: Buffer, port 
           if (typeof input.name !== 'string' || input.name.length > 100 || typeof input.password !== 'string' || input.password.length > 256) return json(res, 400, {error:'Invalid sign-in input.'});
           try {
             const result = await accounts.login(input.name, input.password);
-            accounts.logout(token);
+            await accounts.logout(token);
             res.setHeader('Set-Cookie', `pg_session=${result.token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800${publicOrigin ? '; Secure' : ''}`);
             return json(res, 200, {user:result.user});
           } catch (error) { return json(res, 401, {error:(error as Error).message}); }
@@ -183,21 +183,21 @@ export function createApp(path = 'data/promiseguard.sqlite', key?: Buffer, port 
           try {
             const forwarded = publicOrigin && typeof req.headers['x-forwarded-for'] === 'string' ? req.headers['x-forwarded-for'].split(',')[0].trim().slice(0,100) : '';
             const result = await accounts.register(forwarded || req.socket.remoteAddress || 'unknown',input.name,input.password);
-            accounts.logout(token);
+            await accounts.logout(token);
             res.setHeader('Set-Cookie',`pg_session=${result.token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800${publicOrigin ? '; Secure' : ''}`);
             return json(res,201,{user:result.user});
           } catch (error) {
             const message=(error as Error).message;
-            return json(res,400,{error:message.includes('UNIQUE constraint failed') ? 'That username is unavailable.' : message});
+            return json(res,400,{error:/unique|constraint/i.test(message) ? 'That username is unavailable.' : message});
           }
         }
-        const user = accounts.session(token);
+        const user = await accounts.session(token);
         if (!user) return json(res, 401, {error:'Sign in to your workspace.'});
         if(req.method==='GET'&&(url.pathname==='/api/connections/github/start'||url.pathname==='/api/connections/github/repositories')){
           if(!githubConfig.clientId||!githubConfig.clientSecret||!githubConfig.slug)throw new Error('GitHub App connection is not configured.');
-          const existing=grantMeta(accounts.credentials(user.id).GITHUB_TOKEN||'');
-          if(url.pathname==='/api/connections/github/start')return authorizeGithub(user.id,token,existing?.installationId || 0);
-          const state=accounts.beginConnectionOauth(user.id,token,'github-install');
+          const existing=grantMeta((await accounts.credentials(user.id)).GITHUB_TOKEN||'');
+          if(url.pathname==='/api/connections/github/start')return await authorizeGithub(user.id,token,existing?.installationId || 0);
+          const state=await accounts.beginConnectionOauth(user.id,token,'github-install');
           res.setHeader('Set-Cookie',`pg_connect_oauth=${state}; HttpOnly; SameSite=Lax; Path=/api/connections/github; Max-Age=600${publicOrigin?'; Secure':''}`);
           res.writeHead(302,{Location:`https://github.com/apps/${encodeURIComponent(githubConfig.slug)}/installations/new?state=${state}`,'Cache-Control':'no-store'});return res.end();
         }
@@ -205,41 +205,41 @@ export function createApp(path = 'data/promiseguard.sqlite', key?: Buffer, port 
         if(req.method==='GET'&&workflowStart){
           const provider=workflowStart[1] as WorkflowProvider;const config=workflowOauthConfig()[provider];
           if(!config.clientId||!config.clientSecret)throw new Error(`${provider === 'slack' ? 'Slack' : 'Notion'} connection OAuth is not configured.`);
-          const state=accounts.beginConnectionOauth(user.id,token,`${provider}-connect`);
+          const state=await accounts.beginConnectionOauth(user.id,token,`${provider}-connect`);
           const redirectUri=provider==='slack'?`${requestOrigin}/api/auth/slack/callback/connection`:`${requestOrigin}/api/connections/notion/callback`;
           res.setHeader('Set-Cookie',`pg_connect_oauth=${state}; HttpOnly; SameSite=Lax; Path=/api; Max-Age=600${publicOrigin?'; Secure':''}`);
           res.writeHead(302,{Location:workflowAuthorizeUrl(provider,state,redirectUri,config).href,'Cache-Control':'no-store'});return res.end();
         }
         if (req.method !== 'GET' && req.headers['x-promiseguard-session'] !== user.csrf) return json(res, 403, {error:'Refresh the page before making changes.'});
         if (req.method === 'POST' && url.pathname === '/api/logout') {
-          accounts.logout(token);
+          await accounts.logout(token);
           res.setHeader('Set-Cookie', `pg_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${publicOrigin ? '; Secure' : ''}`);
           return json(res, 200, {ok:true});
         }
         const {store,providers,coordinator} = context(user.id);
         const session = user.csrf;
         if (req.method === 'POST' && url.pathname === '/api/connections/save') {
-          if (coordinator.busy || store.list().some(r => ['review','partial'].includes(r.status))) throw new Error('Finish or dismiss the current run before changing connections.');
+          if (coordinator.busy || (await store.list()).some(r => ['review','partial'].includes(r.status))) throw new Error('Finish or dismiss the current run before changing connections.');
           const input = await body(req);
           if (!(connectionKeys as readonly string[]).includes(input.provider) || typeof input.token !== 'string' || input.token.length > 8000) throw new Error('Invalid connection.');
-          accounts.setConnection(user.id, input.provider, input.token.trim());
+          await accounts.setConnection(user.id, input.provider, input.token.trim());
           return json(res, 200, {ok:true});
         }
         if(req.method==='POST'&&url.pathname==='/api/connections/github/disconnect'){
-          if(coordinator.busy||store.list().some(r=>['review','partial'].includes(r.status)))throw new Error('Finish or dismiss the current run before changing connections.');
+          if(coordinator.busy||(await store.list()).some(r=>['review','partial'].includes(r.status)))throw new Error('Finish or dismiss the current run before changing connections.');
           await disconnectGithub(accounts,user.id,githubConfig);
           return json(res,200,{ok:true});
         }
         const workflowDisconnect=url.pathname.match(/^\/api\/connections\/(slack|notion)\/disconnect$/);
         if(req.method==='POST'&&workflowDisconnect){
-          if(coordinator.busy||store.list().some(r=>['review','partial'].includes(r.status)))throw new Error('Finish or dismiss the current run before changing connections.');
+          if(coordinator.busy||(await store.list()).some(r=>['review','partial'].includes(r.status)))throw new Error('Finish or dismiss the current run before changing connections.');
           const provider=workflowDisconnect[1] as WorkflowProvider;await disconnectWorkflow(accounts,user.id,provider,workflowOauthConfig()[provider]);
           return json(res,200,{ok:true});
         }
-        if (req.method === 'GET' && url.pathname === '/api/bootstrap') {const creds=providers.getCredentials();return json(res, 200, { session, user: {id:user.id,name:user.name}, configured: Object.fromEntries(Object.entries(creds).map(([key, value]) => [key, Boolean(value)])), githubConnection:grantMeta(creds.GITHUB_TOKEN), workflowOauth:workflowOauthAvailable(), workflowConnections:{slack:workflowGrantMeta(creds.SLACK_BOT_TOKEN),notion:workflowGrantMeta(creds.NOTION_TOKEN)}, targets: store.setting('targets'), runs: store.list() });}
+        if (req.method === 'GET' && url.pathname === '/api/bootstrap') {const [creds,targets,runs]=await Promise.all([providers.getCredentials(),store.setting('targets'),store.list()]);return json(res, 200, { session, user: {id:user.id,name:user.name}, configured: Object.fromEntries(Object.entries(creds).map(([key, value]) => [key, Boolean(value)])), githubConnection:grantMeta(creds.GITHUB_TOKEN), workflowOauth:workflowOauthAvailable(), workflowConnections:{slack:workflowGrantMeta(creds.SLACK_BOT_TOKEN),notion:workflowGrantMeta(creds.NOTION_TOKEN)}, targets, runs });}
         if (req.method === 'GET' && url.pathname === '/api/runs') {
           if (req.headers['x-promiseguard-session'] !== session) return json(res, 403, {error:'Refresh after switching accounts.'});
-          return json(res, 200, store.list());
+          return json(res, 200, await store.list());
         }
         if (req.method === 'POST' && url.pathname === '/api/connections') return json(res, 200, await providers.connections());
         if (req.method === 'POST' && url.pathname === '/api/slack/check') {
@@ -254,14 +254,14 @@ export function createApp(path = 'data/promiseguard.sqlite', key?: Buffer, port 
             targets.slackChannel = thread.channelId;
             targets.slackThread = thread.url;
           }
-          const run = coordinator.start(targets);
-          store.setSetting('targets', targets);
+          const run = await coordinator.start(targets);
+          await store.setSetting('targets', targets);
           return json(res, 202, run);
         }
         const match = url.pathname.match(/^\/api\/runs\/([a-f\d-]+)\/(approve|dismiss)$/);
         if (req.method === 'POST' && match) {
           const input = await body(req);
-          return json(res, 200, match[2] === 'approve' ? coordinator.approve(match[1], input.planHash) : coordinator.dismiss(match[1]));
+          return json(res, 200, match[2] === 'approve' ? await coordinator.approve(match[1], input.planHash) : await coordinator.dismiss(match[1]));
         }
         return json(res, 404, { error: 'Endpoint not found.' });
       }
@@ -274,11 +274,11 @@ export function createApp(path = 'data/promiseguard.sqlite', key?: Buffer, port 
       res.end(readFileSync(path));
     } catch (error) {
       const token = req.headers.cookie?.split(';').map(s => s.trim()).find(s => s.startsWith('pg_session='))?.slice(11) || '';
-      const user = accounts.session(token);
-      json(res, 400, { error: user ? context(user.id).providers.redact((error as Error).message) : 'Request failed.' });
+      const user = await accounts.session(token);
+      json(res, 400, { error: user ? await context(user.id).providers.redact((error as Error).message) : 'Request failed.' });
     }
   });
-  server.on('close', () => { for (const c of contexts.values()) c.store.db.close(); root.db.close(); });
+  server.on('close', () => { void root.db.close(); });
   return {server, accounts};
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
@@ -286,7 +286,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   const port = Number(process.env.PORT || 4317);
   if (!Number.isSafeInteger(port) || port < 1 || port > 65535) throw new Error('PORT must be an integer between 1 and 65535.');
   const dataDir = resolve(process.env.PROMISEGUARD_DATA_DIR || 'data');
-  const {server,accounts} = createApp(join(dataDir, 'promiseguard.sqlite'), undefined, port, publicUrl);
+  const {server,accounts} = await createApp(join(dataDir, 'promiseguard.sqlite'), undefined, port, publicUrl);
   const adminUser = process.env.PROMISEGUARD_ADMIN_USER || '', adminPassword = process.env.PROMISEGUARD_ADMIN_PASSWORD || '';
   if (Boolean(adminUser) !== Boolean(adminPassword)) throw new Error('Set both PROMISEGUARD_ADMIN_USER and PROMISEGUARD_ADMIN_PASSWORD, or neither.');
   if (adminUser) await accounts.ensurePasswordAccount(adminUser,adminPassword);
