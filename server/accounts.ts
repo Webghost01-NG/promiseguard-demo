@@ -15,6 +15,7 @@ export class Accounts {
       CREATE TABLE IF NOT EXISTS sessions (hash TEXT PRIMARY KEY, user_id TEXT NOT NULL, csrf TEXT NOT NULL, expires INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS connections (user_id TEXT NOT NULL, provider TEXT NOT NULL, secret TEXT NOT NULL, PRIMARY KEY(user_id, provider));
       CREATE TABLE IF NOT EXISTS login_attempts (name TEXT PRIMARY KEY, count INTEGER NOT NULL, expires INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS signup_attempts (source TEXT PRIMARY KEY, count INTEGER NOT NULL, expires INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS identities (provider TEXT NOT NULL, subject TEXT NOT NULL, user_id TEXT NOT NULL, email TEXT, PRIMARY KEY(provider, subject));
       CREATE TABLE IF NOT EXISTS oauth_states (hash TEXT PRIMARY KEY, provider TEXT NOT NULL, verifier TEXT NOT NULL, nonce TEXT NOT NULL, expires INTEGER NOT NULL);`);
   }
@@ -32,6 +33,15 @@ export class Accounts {
     const normalized = name.trim().toLowerCase();
     const existing = this.db.prepare('SELECT id,name FROM users WHERE name=?').get(normalized) as User|undefined;
     return existing || this.create(normalized,password);
+  }
+  async register(source: string, name: string, password: string) {
+    const now = Date.now(), key = hash(source || 'unknown');
+    this.db.prepare('DELETE FROM signup_attempts WHERE expires<=?').run(now);
+    const attempt = this.db.prepare('SELECT count FROM signup_attempts WHERE source=?').get(key) as {count:number}|undefined;
+    if ((attempt?.count || 0) >= 5) throw new Error('Too many sign-up attempts. Try again in 15 minutes.');
+    this.db.prepare('INSERT INTO signup_attempts VALUES (?,1,?) ON CONFLICT(source) DO UPDATE SET count=count+1').run(key,now+900000);
+    const user = await this.create(name,password);
+    return this.createSession(user);
   }
   claimLocal(userId: string, tokens: Record<string,string>) {
     this.db.exec('BEGIN IMMEDIATE');

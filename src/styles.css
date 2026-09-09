@@ -391,6 +391,7 @@ footer { display: flex; align-items: center; gap: 25px; justify-content: space-b
 .auth-divider { display: flex; align-items: center; gap: 14px; margin: 25px 0 0; color: var(--muted); font-size: 10px; letter-spacing: 1px; text-transform: uppercase; }
 .auth-divider::before, .auth-divider::after { content: ''; height: 1px; background: var(--line); flex: 1; }
 .auth-divider + form { margin-top: 0; }
+.auth-switch { width: 100%; border: 0; background: transparent; color: var(--muted); margin-top: 16px; padding: 6px; font-size: 11px; text-decoration: underline; cursor: pointer; }
 .connection-buttons { display: flex; gap: 16px; align-items: center; margin-top: 12px; }
 .workspace-identity > div { max-width: 140px; overflow-wrap: anywhere; }
 @media (max-width: 850px) {

@@ -41,6 +41,13 @@ test('sign-in attempts are limited including unknown accounts', async () => {
   const store = new Store(':memory:');const accounts=new Accounts(store.db,randomBytes(32));
   try {for(let i=0;i<5;i++)await assert.rejects(accounts.login('unknown',password),/Invalid/);await assert.rejects(accounts.login('unknown',password),/Too many/);}finally{store.db.close();}
 });
+test('public registration is rate limited even when validation fails', async () => {
+  const store=new Store(':memory:');const accounts=new Accounts(store.db,randomBytes(32));
+  try {
+    for(let i=0;i<5;i++) await assert.rejects(accounts.register('one-source','x','short'),/username/);
+    await assert.rejects(accounts.register('one-source','valid-user',password),/Too many sign-up attempts/);
+  } finally {store.db.close();}
+});
 test('social identities create one stable account and OAuth state is single use', () => {
   const store=new Store(':memory:');const accounts=new Accounts(store.db,randomBytes(32));
   try {
@@ -90,6 +97,9 @@ test('HTTP authentication and ownership protect every workspace entry point', as
     const providers=await request('/api/auth/providers');assert.equal(providers.status,200);assert.deepEqual(await providers.json(),{google:false,github:false,slack:false});
     const missing=await request('/api/auth/google/start');assert.equal(missing.status,302);assert.match(missing.headers.get('location') || '',/^\/?\?auth_error=/);
     for(const p of ['/api/bootstrap','/api/runs'])assert.equal((await request(p)).status,401);
+    const signup=await request('/api/signup','POST',{name:'charlie',password});assert.equal(signup.status,201);assert.match(signup.headers.get('set-cookie') || '',/HttpOnly; SameSite=Strict/);
+    const signedBoot=await request('/api/bootstrap','GET',undefined,(signup.headers.get('set-cookie') || '').split(';')[0]);assert.equal(signedBoot.status,200);assert.equal((await signedBoot.json()).user.name,'charlie');
+    assert.equal((await request('/api/signup','POST',{name:'charlie',password})).status,400);
     assert.equal((await request('/api/login','POST',{name:'alice',password},'','','https://evil.example')).status,403);
     const a=await login('alice'),b=await login('bobby');assert.equal(a.boot.runs.length,1);assert.deepEqual(b.boot.runs,[]);assert.equal(b.boot.targets,null);assert.equal(b.boot.configured.GITHUB_TOKEN,false);
     for(const action of ['approve','dismiss']){const r=await request(`/api/runs/${run().id}/${action}`,'POST',{planHash:'unit'},b.cookie,b.csrf);assert.equal(r.status,400);assert.deepEqual(await r.json(),{error:'Run not found.'});}
