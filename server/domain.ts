@@ -117,9 +117,15 @@ export function validateTargets(value: unknown): Targets {
 export function validateAssessment(value: unknown, evidence: Evidence[]): Assessment {
   const assessment = assessmentSchema.parse(value);
   const used = new Set<string>();
+  const comparable = (text: string) => text.normalize('NFKC')
+    .replace(/[‘’]/g, "'")
+    .replace(/[“”]/g, '"')
+    .replace(/[‐‑‒–—]/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim();
   for (const citation of assessment.citations) {
     const source = evidence.find(item => item.id === citation.evidenceId);
-    if (!source || !source.text.includes(citation.quote)) throw new Error('Gemini returned a citation that could not be verified against the source. No plan was approved.');
+    if (!source || !comparable(source.text).includes(comparable(citation.quote))) throw new Error('Gemini returned a citation that could not be verified against the source. No plan was approved.');
     used.add(source.id);
   }
   const commitmentId = evidence.some(e => e.id === 'notion:commitment') ? 'notion:commitment' : 'github:commitment';
