@@ -1,6 +1,6 @@
 # User OAuth onboarding — implementation plan
 
-OAuth is planned, not implemented. Current `.env` tokens belong to one local operator. Publishing the repository does not provide user accounts or a hosted service.
+Provider OAuth is planned, not implemented. Local user accounts, sign-in sessions, encrypted per-user integration tokens and owner-scoped runs/settings are implemented. Accounts are provisioned through the terminal; public registration and hosting are not enabled.
 
 Users should sign in, connect GitHub, select repositories, and start a GitHub-only analysis. Connecting Notion or Slack should remain optional. Each run must use connections belonging to its authenticated user/workspace, never fall back to the operator's tokens.
 
@@ -14,10 +14,12 @@ Users should sign in, connect GitHub, select repositories, and start a GitHub-on
 ## Required implementation
 
 1. Choose the hosting URL and register exact callback URLs with each provider.
-2. Implement application sign-in and server-side sessions before connecting accounts.
+2. **Implemented locally:** application sign-in and server-side sessions.
 3. Bind authorization state to the initiating session; validate callbacks and exchange codes on the server.
-4. Store encrypted credentials and provider identities per user/workspace. Enforce ownership on every run, connection, read and approval.
+4. **Implemented locally:** encrypted tokens per user and ownership checks on runs, connections, reads and approvals. OAuth grants still need provider installation identities and refresh metadata.
 5. Support token expiry/refresh where applicable, disconnection and revoked access. Recheck identity during approval/recovery.
 6. Verify two separate users cannot access each other's targets, evidence, tokens or actions; exercise installation, cancellation, expiry and reconnect against real providers.
 
-The deployment URL and registered app credentials are prerequisites for working redirects. This document does not introduce callback endpoints, database changes or public hosting. Existing local credentials remain the prototype path until user isolation and OAuth are ready together.
+The deployment URL and registered app credentials are prerequisites for working redirects. Callback endpoints and public hosting remain outstanding. The account-isolation implementation adds users, sessions, encrypted connections and scoped settings to SQLite; legacy run ownership is assigned only by the explicit terminal import command.
+
+Password derivation and authenticated token encryption use [Node crypto](https://nodejs.org/api/crypto.html). This local foundation still needs HTTPS deployment settings, provider callbacks and real OAuth lifecycle verification before public use.

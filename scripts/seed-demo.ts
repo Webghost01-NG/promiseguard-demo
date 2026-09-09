@@ -6,6 +6,11 @@ import { githubIssue, notionId } from '../server/domain.ts';
 // Explicitly authorized synthetic demonstration, documented in docs/demo-scenario.md.
 // This script is opt-in and is never called by the application.
 if (!process.argv.includes('--apply')) throw new Error('Review docs/demo-scenario.md and pass --apply only after approval to create these external records.');
+const store = new Store();
+if (store.db.prepare("SELECT 1 FROM user_settings WHERE owner='system' AND key='local-claimed'").get()) {
+  store.db.close();
+  throw new Error('This setup script is for an unclaimed local workspace. Use your existing record links after signing in. No external changes were made.');
+}
 const providers = new Providers();
 function argument(name: string) {
   const index = process.argv.indexOf(`--${name}`);
@@ -69,7 +74,6 @@ const targets = {
   owner,
   model: 'gemini-3.1-flash-lite',
 };
-const store = new Store();
 store.setSetting('targets', targets);
 store.db.close();
 console.log('Actual demo record links saved as the default workflow targets.');

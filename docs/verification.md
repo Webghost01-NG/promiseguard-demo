@@ -2,7 +2,7 @@
 
 ## Current checks
 
-- **24 local tests pass.** Coverage includes bounded targets, source quotations, approval-plan identity, SQLite recovery, unknown-write classification, Slack timestamp precision, parent-thread query handling, mismatched channels, and malformed copied links.
+- **32 local tests pass.** Coverage includes bounded targets, source quotations, approval-plan identity, SQLite recovery, unknown-write classification, Slack timestamp precision, parent-thread query handling, mismatched channels, and malformed copied links.
 - **TypeScript and production build pass.** Production dependency audit reports no known vulnerabilities.
 - **Optional integration UI:** all four combinations passed at 1440, 768, 390 and 320 pixels (16 checks), without browser errors or horizontal overflow.
 - **Earlier UI checks:** 35 viewport checks passed during the redesign. The Slack fix additionally passed browser checks at 1440, 768, 390, and 320 pixels, including actionable errors, conversion to a readable message link, and clearing an outdated success indicator after editing. No browser errors or horizontal overflow were observed.
@@ -11,6 +11,14 @@
 - **Live read-back:** all three external records belonging to the saved completed demonstration were independently read and matched the recorded GitHub, Notion, and Slack actions during this fix. No additional repair writes were sent.
 - **Initial security checks:** cross-origin and missing-session mutations were rejected, `.env` was not served, and credentials were absent from source and frontend output. Private runtime data and credentials remain Git-ignored.
 - **Setup script:** invocation without `--apply` was rejected before any external action. The public script now requires explicit repository, page, channel, and owner arguments instead of hardcoded private-workspace destinations.
+
+## Account isolation checks
+
+Local tests verify password hashing, session expiry/revocation, sign-in rate limits, owner-scoped reads/settings/writes, cross-user approval rejection, authenticated HTTP entry points, CSRF, encrypted token ownership and an explicit one-time legacy import. A missing credential key fails closed. Legacy run payloads remain unchanged during ownership assignment. Terminal provisioning is exercised against a temporary database.
+
+Real browser sign-in/out and separate-account token storage passed against a temporary local test server. Sign-in, workspace and connections passed at 1440, 768, 390 and 320 pixels (12 checks), without page errors or horizontal overflow. No external provider calls were made for these account tests.
+
+These checks use synthetic local accounts and SQLite fixtures. They do not constitute a public-hosting security audit or provider OAuth verification. Provider tokens remain manually connected until OAuth is implemented.
 
 ## Demonstration provenance
 
@@ -22,6 +30,6 @@ The latest failed analysis is retained as history. Its GitHub target differs fro
 
 Actual interrupted-repair recovery has not yet been exercised against live providers. Local recovery tests are not a substitute for that test. Broader model decision quality remains unmeasured.
 
-GitHub-only mode and optional Notion/Slack are implemented. Live GitHub-only collection succeeded with Notion and Slack credentials absent; only GitHub requests were made. The completed legacy plan retained its approval hash. Local tests cover all four destination combinations and one-action recovery. No new live repair writes were performed for this feature. Other limits include one local operator/process, bounded pagination, flat Notion pages, and best-effort stale-write prevention. Unknown external outcomes can require manual investigation. Publishing this source does not deploy or expose the local server.
+GitHub-only mode and optional Notion/Slack are implemented. Live GitHub-only collection succeeded with Notion and Slack credentials absent; only GitHub requests were made. The completed legacy plan retained its approval hash. Local tests cover all four destination combinations and one-action recovery. No new live repair writes were performed for this feature. Other limits include one local server process, bounded pagination, flat Notion pages, and best-effort stale-write prevention. Unknown external outcomes can require manual investigation. Publishing this source does not deploy or expose the local server.
 
 See [UI design review](ui-design-review.md) for the interface reference review and design decisions.

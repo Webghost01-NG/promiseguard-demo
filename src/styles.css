@@ -374,3 +374,18 @@ footer { display: flex; align-items: center; gap: 25px; justify-content: space-b
 .source-options label:last-child { margin-bottom: 0; }
 .source-options input, .optional-toggle input { width: 15px; height: 15px; flex-shrink: 0; margin: 2px 0 0; accent-color: var(--accent); }
 .optional-toggle { margin: 8px 0 18px; padding: 10px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); cursor: pointer; }
+
+.signin { max-width: 520px; padding: 36px 24px; margin: 5vh auto; }
+.signin section { margin-top: 55px; }
+.signin h1 { font-size: clamp(32px, 7vw, 48px); letter-spacing: -2px; margin: 18px 0; }
+.signin section > p { color: var(--muted); line-height: 1.7; }
+.signin form { margin-top: 28px; }
+.signin label, .connection-form label { display: block; font-size: 12px; margin: 18px 0 8px; }
+.signin input, .connection-form input { width: 100%; border: 1px solid var(--line); border-radius: 4px; padding: 12px; background: var(--paper); color: inherit; }
+.signin .primary { margin-top: 24px; }
+.connection-buttons { display: flex; gap: 16px; align-items: center; margin-top: 12px; }
+.workspace-identity > div { max-width: 140px; overflow-wrap: anywhere; }
+@media (max-width: 850px) {
+  .app-header { flex-wrap: wrap; padding-top: 16px; padding-bottom: 16px; }
+  .workspace-identity { display: flex; width: 100%; justify-content: flex-end; }
+}
