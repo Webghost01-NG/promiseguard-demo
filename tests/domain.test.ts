@@ -136,6 +136,22 @@ test('ambiguous writes must reconcile instead of being treated as fresh actions'
   assert.equal(requiresReconciliation('in_flight'), true);
   assert.equal(requiresReconciliation('pending'), false);
 });
+test('GitHub reconciliation requires one exact write by the approved actor', async () => {
+  const run = githubOnlyFixture();
+  const action = planActions(run)[0];
+  const providers = new Providers(() => ({}));
+  providers.githubComments = async () => [
+    { id: 101, user: { id: run.snapshot!.githubActor }, body: 'different content' },
+    { id: 102, user: { id: 999 }, body: action.body },
+    { id: 103, user: { id: run.snapshot!.githubActor }, body: action.body },
+  ];
+  assert.equal(await providers.reconcile(run, { ...action, status: 'unknown' }), '103');
+  providers.githubComments = async () => [
+    { id: 103, user: { id: run.snapshot!.githubActor }, body: action.body },
+    { id: 104, user: { id: run.snapshot!.githubActor }, body: action.body },
+  ];
+  await assert.rejects(() => providers.reconcile(run, { ...action, status: 'unknown' }), /Multiple matching GitHub writes/);
+});
 
 test('Slack copied links tolerate surrounding whitespace without changing precision', () => {
   assert.deepEqual(slackTarget(' CUNITTEST ', ' https://app.slack.com/archives/CUNITTEST/p1788937843944739 '), { channelId: 'CUNITTEST', timestamp: '1788937843.944739' });

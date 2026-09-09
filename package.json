@@ -10,6 +10,7 @@
     "dev": "tsx server/index.ts",
     "build": "tsc --noEmit && vite build",
     "evaluate": "tsx scripts/evaluate-assessments.ts",
+    "recovery:github": "tsx scripts/verify-github-recovery.ts",
     "start": "tsx server/index.ts",
     "test": "tsx --test tests/*.test.ts"
   },

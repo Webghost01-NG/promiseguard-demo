@@ -37,3 +37,15 @@ npx tsx scripts/seed-demo.ts --apply \
 ```
 
 Replace these placeholders with resources you control. This script makes real external writes. It stores returned identities locally in `data/demo-records.json`; keep that file private. It refuses to reuse a state file from another or legacy setup. Existing demonstration links can be entered directly in the application without rerunning setup.
+
+## Controlled GitHub recovery proof
+
+The recovery command creates one clearly labeled synthetic comment, deliberately discards the returned comment ID, reconciles the unknown action against the exact issue, actor, and approved body, and verifies that exactly one provider record exists. Use only a dedicated demo issue:
+
+```bash
+npm run recovery:github -- --apply --issue https://github.com/OWNER/REPO/issues/NUMBER
+```
+
+The credential-free report under `artifacts/` includes the provider record link, verification timestamp, exact-match count, body hash, and a guarded cleanup command. Cleanup refuses any comment that is not an owned PromiseGuard recovery fixture on the selected issue.
+
+The controlled run on 9 September 2026 recovered and independently verified exactly one record: [GitHub comment 5610265017](https://github.com/Webghost01-NG/promiseguard-demo/issues/1#issuecomment-5610265017). The approved body hash was `830c16be6cccf262dead069282196b1a74980f1e270753d70687658aa59920c7`.
