@@ -10,7 +10,15 @@ export function credentials(): Record<string, string> {
 }
 export function redact(message: string, secrets = credentials()) {
   let text = message;
-  for (const secret of Object.values(secrets)) if (secret) text = text.replaceAll(secret, '[redacted]');
+  for (const secret of Object.values(secrets)) if (secret) {
+    const values = [secret];
+    try {
+      const grant = JSON.parse(secret);
+      if (typeof grant.accessToken === 'string') values.push(grant.accessToken);
+      if (typeof grant.refreshToken === 'string') values.push(grant.refreshToken);
+    } catch {}
+    for (const value of values) if (value) text = text.replaceAll(value, '[redacted]');
+  }
   return text.slice(0, 1200);
 }
 export class ProviderError extends Error {
@@ -21,7 +29,7 @@ function richText(parts: Json[] = []) { return parts.map(part => part.plain_text
 function blockText(block: Json) { return richText(block[block.type]?.rich_text); }
 
 export class Providers {
-  constructor(public getCredentials: () => Record<string,string> = credentials, private getGithubToken?:()=>Promise<string>) {}
+  constructor(public getCredentials: () => Record<string,string> = credentials, private getProviderToken?:(key:string)=>Promise<string>) {}
   redact(message: string) {
     try { return redact(message, this.getCredentials()); }
     catch { return 'Connection credentials could not be read. Restore the credential key and database together.'; }
@@ -33,7 +41,7 @@ export class Providers {
       Slack: { host: 'https://slack.com/api', key: 'SLACK_BOT_TOKEN' },
       Gemini: { host: 'https://generativelanguage.googleapis.com/v1beta', key: 'GEMINI_API_KEY' },
     }[provider];
-    const token = provider === 'GitHub' && this.getGithubToken ? await this.getGithubToken() : this.getCredentials()[config.key];
+    const token = provider !== 'Gemini' && this.getProviderToken ? await this.getProviderToken(config.key) : this.getCredentials()[config.key];
     if (!token) throw new ProviderError(provider === 'Gemini' ? 'Ask the server operator to configure GEMINI_API_KEY.' : `Connect ${provider} in Connections and check access again.`);
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (provider === 'Gemini') headers['x-goog-api-key'] = token;

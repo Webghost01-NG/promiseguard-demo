@@ -96,7 +96,7 @@ export class Accounts {
       return row && row.expires > Date.now() ? {verifier:row.verifier, nonce:row.nonce} : undefined;
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
   }
-  beginConnectionOauth(userId:string, sessionToken:string, phase:'github-install'|'github-authorize', verifier='', installationId='', sessionHash=hash(sessionToken)) {
+  beginConnectionOauth(userId:string, sessionToken:string, phase:'github-install'|'github-authorize'|'slack-connect'|'notion-connect', verifier='', installationId='', sessionHash=hash(sessionToken)) {
     const active=this.db.prepare('SELECT 1 FROM sessions WHERE hash=? AND user_id=? AND expires>?').get(sessionHash,userId,Date.now());
     if(!active) throw new Error('Sign in again before connecting GitHub.');
     const state=randomBytes(32).toString('hex');
@@ -104,7 +104,7 @@ export class Accounts {
     this.db.prepare('INSERT INTO connection_oauth_states VALUES (?,?,?,?,?,?,?)').run(hash(state),phase,userId,sessionHash,verifier,installationId,Date.now()+10*60000);
     return state;
   }
-  consumeConnectionOauth(phase:'github-install'|'github-authorize', state:string) {
+  consumeConnectionOauth(phase:'github-install'|'github-authorize'|'slack-connect'|'notion-connect', state:string) {
     if(!/^[a-f0-9]{64}$/.test(state)) return undefined;
     const stateHash=hash(state);
     this.db.exec('BEGIN IMMEDIATE');

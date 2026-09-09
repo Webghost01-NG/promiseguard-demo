@@ -35,9 +35,13 @@ Users can create a password account from the sign-in page. Registration is rate 
 - `/api/auth/github/callback`
 - `/api/auth/slack/callback`
 
-GitHub sign-in requests identity scopes only; users still connect a workflow token in Connections. Slack identity sign-in remains separate from the Slack bot installation because Slack does not allow identity and bot scopes in one OAuth flow.
+GitHub sign-in requests identity scopes only; users authorize repository workflow access separately in Connections. Slack identity sign-in remains separate from the Slack bot installation because Slack does not allow identity and bot scopes in one OAuth flow.
 
 For repository-scoped workflow access, configure `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, and `GITHUB_APP_SLUG`. Register `/api/connections/github/setup` as the GitHub App setup URL and `/api/connections/github/callback` as its user authorization callback. The install flow lets each user choose repositories, then verifies that installation with an expiring, refreshable GitHub App user token. Connected users can reauthorize without changing repository selection, update installation access separately, or disconnect and revoke the GitHub authorization. Manual tokens remain a local/test fallback.
+
+For optional Slack workflow access, use the existing `SLACK_CLIENT_ID` and `SLACK_CLIENT_SECRET`, add `/api/connections/slack/callback` as a Slack OAuth redirect, and configure the app's bot scopes `channels:history` and `chat:write`. Keep the OpenID Connect sign-in callback separate at `/api/auth/slack/callback`. Enable Slack distribution before users from other workspaces install the app.
+
+For optional Notion workflow access, create a public OAuth connection with read content, update content, and user-information capabilities. Configure `NOTION_CLIENT_ID` and `NOTION_CLIENT_SECRET`, and register `/api/connections/notion/callback` as its redirect URI. Each installer chooses the pages PromiseGuard can access. OAuth grants are encrypted per PromiseGuard user, refreshed when the provider returns expiring credentials, and revoked remotely on disconnect. Manual Slack and Notion tokens remain available under **Manual token fallback**.
 
 ## Existing local workspace
 
@@ -65,7 +69,7 @@ bash scripts/setup-account.sh tester-name
 
 For a repeatable operator account on an ephemeral test deployment, set both `PROMISEGUARD_ADMIN_USER` and `PROMISEGUARD_ADMIN_PASSWORD`. The server creates that account only when the username is absent and never logs the password. A persistent production deployment should provision accounts once and remove these bootstrap variables.
 
-Each tester signs in at the service's `onrender.com` URL and connects their own GitHub workflow token. Never share one account or token between testers. Back up both `/opt/render/project/src/data/promiseguard.sqlite` and `/opt/render/project/src/data/credentials.key` together. The app accepts only its exact Render HTTPS origin, sets Secure session cookies and keeps anonymous workspace APIs closed.
+Each tester signs in at the service's `onrender.com` URL and authorizes only the workflow applications they need. Never share one account or token between testers. Back up both `/opt/render/project/src/data/promiseguard.sqlite` and `/opt/render/project/src/data/credentials.key` together. The app accepts only its exact Render HTTPS origin, sets Secure session cookies and keeps anonymous workspace APIs closed.
 
 ## Prepare actual demo records
 

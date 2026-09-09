@@ -9,6 +9,8 @@ import { request as httpRequest } from 'node:http';
 import { Store } from '../server/store.ts';
 import { Accounts, encryptionKey } from '../server/accounts.ts';
 import { createApp } from '../server/index.ts';
+import { workflowGrantMeta } from '../server/workflow-oauth.ts';
+import { redact } from '../server/providers.ts';
 import type { Run } from '../server/domain.ts';
 const password = 'synthetic-test-password-only';
 function run(id='aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'): Run {
@@ -78,6 +80,8 @@ test('workflow OAuth state is bound to one active user session and phase', async
     const revoked=accounts.beginConnectionOauth(alice.id,a.token,'github-install');accounts.logout(a.token);
     assert.equal(accounts.consumeConnectionOauth('github-install',revoked),undefined);
     assert.throws(()=>accounts.beginConnectionOauth(alice.id,b.token,'github-install'),/Sign in again/);
+    const active=await accounts.login(alice.name,password);
+    for(const phase of ['slack-connect','notion-connect'] as const){const state=accounts.beginConnectionOauth(alice.id,active.token,phase);assert.equal(accounts.consumeConnectionOauth(phase,state)?.user_id,alice.id);assert.equal(accounts.consumeConnectionOauth(phase,state),undefined);}
   } finally {store.db.close();}
 });
 test('encrypted tokens cannot be read by another user or moved between owners', () => {
@@ -91,6 +95,15 @@ test('encrypted tokens cannot be read by another user or moved between owners', 
     accounts.setConnection('alice','GITHUB_TOKEN','');assert.deepEqual(accounts.credentials('alice'),{});
     assert.throws(()=>accounts.setConnection('alice','GEMINI_API_KEY','x'));
   }finally{store.db.close();}
+});
+test('workflow OAuth metadata exposes workspace labels without grant secrets', () => {
+  const slack=JSON.stringify({kind:'slack-oauth',accessToken:'hidden-slack',refreshToken:'hidden-refresh',expiresAt:0,teamId:'T1',teamName:'Unit Slack',botUserId:'B1'});
+  const notion=JSON.stringify({kind:'notion-oauth',accessToken:'hidden-notion',refreshToken:'hidden-refresh',expiresAt:0,workspaceId:'N1',workspaceName:'Unit Notion',botId:'B2'});
+  assert.deepEqual(workflowGrantMeta(slack),{type:'oauth',label:'Unit Slack'});
+  assert.deepEqual(workflowGrantMeta(notion),{type:'oauth',label:'Unit Notion'});
+  assert.equal(JSON.stringify([workflowGrantMeta(slack),workflowGrantMeta(notion)]).includes('hidden-'),false);
+  assert.equal(workflowGrantMeta('manual-token'),undefined);
+  assert.equal(redact('provider echoed hidden-slack and hidden-refresh',{SLACK_BOT_TOKEN:slack}),'provider echoed [redacted] and [redacted]');
 });
 test('owner scope prevents reading, updating, and overwriting another user’s settings or runs', () => {
   const dir=mkdtempSync(join(tmpdir(),'pg-scope-'));const path=join(dir,'db');const a=new Store(path,'alice'),b=new Store(path,'bob');
@@ -126,19 +139,27 @@ test('HTTP authentication and ownership protect every workspace entry point', as
     assert.equal((await request('/api/connections/github/disconnect','POST',{},b.cookie,b.csrf)).status,200);
     assert.equal((await(await request('/api/bootstrap','GET',undefined,b.cookie)).json()).configured.GITHUB_TOKEN,false);
     assert.equal((await(await request('/api/bootstrap','GET',undefined,a.cookie)).json()).configured.GITHUB_TOKEN,false);
+    for(const [provider,key] of [['slack','SLACK_BOT_TOKEN'],['notion','NOTION_TOKEN']] as const){assert.equal((await request('/api/connections/save','POST',{provider:key,token:`synthetic-${provider}`},b.cookie,b.csrf)).status,200);assert.equal((await request(`/api/connections/${provider}/disconnect`,'POST',{},b.cookie,b.csrf)).status,200);assert.equal((await(await request('/api/bootstrap','GET',undefined,b.cookie)).json()).configured[key],false);}
     accounts.setConnection(bobby.id,'GITHUB_TOKEN',JSON.stringify({kind:'github-app-user',accessToken:'hidden-access',refreshToken:'hidden-refresh',expiresAt:Date.now()+3600000,refreshExpiresAt:Date.now()+7200000,githubUserId:7,installationId:42,repositories:['unit/fixture']}));
-    const prior={id:process.env.GITHUB_APP_CLIENT_ID,secret:process.env.GITHUB_APP_CLIENT_SECRET,slug:process.env.GITHUB_APP_SLUG};
+    const prior={id:process.env.GITHUB_APP_CLIENT_ID,secret:process.env.GITHUB_APP_CLIENT_SECRET,slug:process.env.GITHUB_APP_SLUG,slackId:process.env.SLACK_CLIENT_ID,slackSecret:process.env.SLACK_CLIENT_SECRET,notionId:process.env.NOTION_CLIENT_ID,notionSecret:process.env.NOTION_CLIENT_SECRET};
     process.env.GITHUB_APP_CLIENT_ID='unit-client';process.env.GITHUB_APP_CLIENT_SECRET='unit-secret';process.env.GITHUB_APP_SLUG='unit-app';
+    process.env.SLACK_CLIENT_ID='unit-slack';process.env.SLACK_CLIENT_SECRET='unit-slack-secret';process.env.NOTION_CLIENT_ID='unit-notion';process.env.NOTION_CLIENT_SECRET='unit-notion-secret';
     try {
       const reconnect=await request('/api/connections/github/start','GET',undefined,b.cookie);assert.equal(reconnect.status,302);assert.match(reconnect.headers.get('location')||'',/^https:\/\/github\.com\/login\/oauth\/authorize\?/);assert.match(reconnect.headers.get('location')||'',/code_challenge=/);
       const reconnectUrl=new URL(reconnect.headers.get('location')!);const state=reconnectUrl.searchParams.get('state')!;const connectionCookie=(reconnect.headers.get('set-cookie')||'').split(';')[0];
       const cancelled=await request(`/api/connections/github/callback?state=${state}&error=access_denied`,'GET',undefined,`${b.cookie}; ${connectionCookie}`);assert.equal(cancelled.status,302);assert.match(decodeURIComponent(cancelled.headers.get('location')||''),/connection_error=GitHub authorization was cancelled/);
       const repositories=await request('/api/connections/github/repositories','GET',undefined,b.cookie);assert.equal(repositories.status,302);assert.match(repositories.headers.get('location')||'',/^https:\/\/github\.com\/apps\/unit-app\/installations\/new\?state=/);
       const meta=await(await request('/api/bootstrap','GET',undefined,b.cookie)).json();assert.deepEqual(meta.githubConnection,{type:'github-app',repositories:['unit/fixture'],installationId:42});assert.ok(!JSON.stringify(meta).includes('hidden-access'));assert.ok(!JSON.stringify(meta).includes('hidden-refresh'));
+      assert.deepEqual(meta.workflowOauth,{slack:true,notion:true});
+      for(const provider of ['slack','notion'] as const){const started=await request(`/api/connections/${provider}/start`,'GET',undefined,b.cookie);assert.equal(started.status,302);assert.match(started.headers.get('location')||'',provider==='slack'?/^https:\/\/slack\.com\/oauth\/v2\/authorize\?/:/^https:\/\/api\.notion\.com\/v1\/oauth\/authorize\?/);const state=new URL(started.headers.get('location')!).searchParams.get('state')!;const oauthCookie=(started.headers.get('set-cookie')||'').split(';')[0];const cancelled=await request(`/api/connections/${provider}/callback?state=${state}&error=access_denied`,'GET',undefined,`${b.cookie}; ${oauthCookie}`);assert.equal(cancelled.status,302);assert.match(decodeURIComponent(cancelled.headers.get('location')||''),new RegExp(`${provider==='slack'?'Slack':'Notion'} authorization was cancelled`));}
     } finally {
       if(prior.id===undefined)delete process.env.GITHUB_APP_CLIENT_ID;else process.env.GITHUB_APP_CLIENT_ID=prior.id;
       if(prior.secret===undefined)delete process.env.GITHUB_APP_CLIENT_SECRET;else process.env.GITHUB_APP_CLIENT_SECRET=prior.secret;
       if(prior.slug===undefined)delete process.env.GITHUB_APP_SLUG;else process.env.GITHUB_APP_SLUG=prior.slug;
+      if(prior.slackId===undefined)delete process.env.SLACK_CLIENT_ID;else process.env.SLACK_CLIENT_ID=prior.slackId;
+      if(prior.slackSecret===undefined)delete process.env.SLACK_CLIENT_SECRET;else process.env.SLACK_CLIENT_SECRET=prior.slackSecret;
+      if(prior.notionId===undefined)delete process.env.NOTION_CLIENT_ID;else process.env.NOTION_CLIENT_ID=prior.notionId;
+      if(prior.notionSecret===undefined)delete process.env.NOTION_CLIENT_SECRET;else process.env.NOTION_CLIENT_SECRET=prior.notionSecret;
     }
     assert.equal((await request('/api/logout','POST',{},b.cookie,b.csrf)).status,200);assert.equal((await request('/api/bootstrap','GET',undefined,b.cookie)).status,401);
     assert.equal((await request('/.env')).status,404);
