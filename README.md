@@ -1,6 +1,6 @@
 # PromiseGuard
 
-A local commitment-reconciliation workspace using Gemini, GitHub, Notion, and Slack. It gathers linked evidence, proposes an exact repair for review, and verifies each approved external change. Users sign in to separate workspaces with their own encrypted integration tokens. OAuth and public hosting are not implemented.
+A commitment-reconciliation workspace using Gemini, GitHub, Notion, and Slack. It gathers linked evidence, proposes an exact repair for review, and verifies each approved external change. Users sign in to separate workspaces with Google, GitHub, Slack, or an operator-created password account. Their integration tokens are encrypted per account.
 
 ![PromiseGuard workspace showing a recorded, verified synthetic demonstration](docs/assets/workspace.png)
 
@@ -13,7 +13,7 @@ git clone https://github.com/Webghost01-NG/promiseguard-demo.git
 cd promiseguard-demo
 npm ci
 cp .env.example .env
-# Set GEMINI_API_KEY in .env (see Credentials below).
+# Set GEMINI_API_KEY and any OAuth client credentials in .env (see Credentials below).
 bash scripts/setup-account.sh your-name
 npm run build
 npm start
@@ -29,6 +29,14 @@ nano .env
 
 Set the server’s `GEMINI_API_KEY` in `.env`. Sign in and save your own GitHub token in Connections. Add Notion and Slack only when needed. These tokens are encrypted in SQLite and scoped to your account; saved values are never returned to the browser. The server does not fall back to the operator’s GitHub, Notion or Slack environment tokens. Click Connections → Check connections to verify authentication. Gemini model-list access does not prove generation quota.
 
+Social sign-up is enabled separately for each provider whose client ID and client secret are configured. A provider’s verified immutable user ID is bound to one PromiseGuard account; accounts are never merged from email alone. Register these callback paths for the deployed origin:
+
+- `/api/auth/google/callback`
+- `/api/auth/github/callback`
+- `/api/auth/slack/callback`
+
+GitHub sign-in requests identity scopes only; users still connect a workflow token in Connections. Slack identity sign-in remains separate from the Slack bot installation because Slack does not allow identity and bot scopes in one OAuth flow.
+
 ## Existing local workspace
 
 Create your account and explicitly import the existing local records and `.env` workflow tokens once:
@@ -39,7 +47,7 @@ bash scripts/setup-account.sh webghost --claim-local
 
 The command prompts for a password without displaying it. Use at least 12 characters. It assigns existing runs and settings without changing their stored plan content. Other accounts start empty. No browser can claim unassigned records. Omit `--claim-local` when provisioning additional accounts.
 
-Keep `data/credentials.key` together with a private backup of the SQLite database. Losing the key makes saved integration tokens unreadable. Accounts use salted scrypt password hashes, eight-hour server sessions, HttpOnly SameSite cookies, and sign-in rate limits. Sign-out revokes the session; already-approved background work continues. There is no password-reset UI or public registration in this phase.
+Keep `data/credentials.key` together with a private backup of the SQLite database. Losing the key makes saved integration tokens unreadable. Password accounts use salted scrypt hashes; all accounts use eight-hour server sessions and HttpOnly SameSite cookies. Password sign-in has rate limits. Sign-out revokes the session; already-approved background work continues. There is no password-reset UI for operator-created accounts. Social accounts do not have local passwords.
 
 ## Deploy for invited testing
 
@@ -47,15 +55,13 @@ The included Render Blueprint runs one Node instance with a 1 GB persistent disk
 
 [Deploy PromiseGuard on Render](https://render.com/deploy?repo=https://github.com/Webghost01-NG/promiseguard-demo)
 
-During Blueprint setup, enter `GEMINI_API_KEY`. Once deployment succeeds, open the service Shell and provision each invited tester:
+During Blueprint setup, enter `GEMINI_API_KEY` and the configured providers' OAuth client IDs and secrets. Social sign-in creates a private workspace on first use. You can also open the service Shell and provision an invited password account:
 
 ```bash
 bash scripts/setup-account.sh tester-name
 ```
 
-Each tester signs in at the service's `onrender.com` URL and connects their own GitHub token. Never share one account or token between testers. Back up both `/opt/render/project/src/data/promiseguard.sqlite` and `/opt/render/project/src/data/credentials.key` together. The app accepts only its exact Render HTTPS origin, sets Secure session cookies and keeps anonymous workspace APIs closed.
-
-GitHub App OAuth remains the next phase. Once Render assigns the stable URL, use `https://YOUR-SERVICE.onrender.com/api/github/callback` as the callback address when registering the GitHub App. That route is planned and is not present yet.
+Each tester signs in at the service's `onrender.com` URL and connects their own GitHub workflow token. Never share one account or token between testers. Back up both `/opt/render/project/src/data/promiseguard.sqlite` and `/opt/render/project/src/data/credentials.key` together. The app accepts only its exact Render HTTPS origin, sets Secure session cookies and keeps anonymous workspace APIs closed.
 
 ## Prepare actual demo records
 
@@ -117,4 +123,4 @@ GitHub and Gemini are required. Notion and Slack are optional for each run.
 
 ![GitHub-only source selection](docs/assets/github-only.png)
 
-User sign-in and isolated workspaces are implemented. Provider OAuth onboarding is the next phase; see the [OAuth plan](docs/oauth-onboarding.md). The public repository publishes source code; it does not make the local server a hosted multi-user service.
+Social sign-up, password sign-in, and isolated workspaces are implemented. Workflow-token OAuth and repository selection remain future connection improvements; see [OAuth onboarding](docs/oauth-onboarding.md).

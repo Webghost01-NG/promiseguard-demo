@@ -31,6 +31,23 @@ test('sign-in attempts are limited including unknown accounts', async () => {
   const store = new Store(':memory:');const accounts=new Accounts(store.db,randomBytes(32));
   try {for(let i=0;i<5;i++)await assert.rejects(accounts.login('unknown',password),/Invalid/);await assert.rejects(accounts.login('unknown',password),/Too many/);}finally{store.db.close();}
 });
+test('social identities create one stable account and OAuth state is single use', () => {
+  const store=new Store(':memory:');const accounts=new Accounts(store.db,randomBytes(32));
+  try {
+    const state=accounts.beginOauth('google','unit-verifier','unit-nonce');
+    assert.deepEqual(accounts.consumeOauth('google',state),{verifier:'unit-verifier',nonce:'unit-nonce'});
+    assert.equal(accounts.consumeOauth('google',state),undefined);
+    const first=accounts.socialLogin('github','12345','Alice Dev','alice@example.test');
+    const again=accounts.socialLogin('github','12345','A Changed Name','changed@example.test');
+    const otherProvider=accounts.socialLogin('google','12345','Alice Dev','alice@example.test');
+    assert.equal(first.user.id,again.user.id);
+    assert.notEqual(first.user.id,otherProvider.user.id);
+    assert.notEqual(first.user.name,otherProvider.user.name);
+    assert.equal(accounts.session(first.token)?.id,first.user.id);
+    const rows=store.db.prepare('SELECT provider,subject,email FROM identities ORDER BY provider').all().map(row=>({...row}));
+    assert.deepEqual(rows,[{provider:'github',subject:'12345',email:'alice@example.test'},{provider:'google',subject:'12345',email:'alice@example.test'}]);
+  } finally {store.db.close();}
+});
 test('encrypted tokens cannot be read by another user or moved between owners', () => {
   const store=new Store(':memory:');const accounts=new Accounts(store.db,randomBytes(32));
   try {
@@ -57,9 +74,11 @@ test('HTTP authentication and ownership protect every workspace entry point', as
   const owned=new Store(path,alice.id);owned.save(run());owned.setSetting('targets',{private:'alice'});owned.db.close();
   await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
   const addr=server.address() as {port:number};const base=`http://127.0.0.1:${addr.port}`;
-  const request=(path:string,method='GET',data?:unknown,cookie='',csrf='',origin=base)=>fetch(base+path,{method,headers:{Origin:origin,'Content-Type':'application/json',Cookie:cookie,'X-PromiseGuard-Session':csrf},body:data===undefined?undefined:JSON.stringify(data)});
+  const request=(path:string,method='GET',data?:unknown,cookie='',csrf='',origin=base)=>fetch(base+path,{method,redirect:'manual',headers:{Origin:origin,'Content-Type':'application/json',Cookie:cookie,'X-PromiseGuard-Session':csrf},body:data===undefined?undefined:JSON.stringify(data)});
   async function login(name:string){const r=await request('/api/login','POST',{name,password});assert.equal(r.status,200);const cookie=r.headers.get('set-cookie')!.split(';')[0];assert.match(r.headers.get('set-cookie')!,/HttpOnly; SameSite=Strict/);const boot=await(await request('/api/bootstrap','GET',undefined,cookie)).json();return{cookie,csrf:boot.session,boot};}
   try {
+    const providers=await request('/api/auth/providers');assert.equal(providers.status,200);assert.deepEqual(await providers.json(),{google:false,github:false,slack:false});
+    const missing=await request('/api/auth/google/start');assert.equal(missing.status,302);assert.match(missing.headers.get('location') || '',/^\/?\?auth_error=/);
     for(const p of ['/api/bootstrap','/api/runs'])assert.equal((await request(p)).status,401);
     assert.equal((await request('/api/login','POST',{name:'alice',password},'','','https://evil.example')).status,403);
     const a=await login('alice'),b=await login('bobby');assert.equal(a.boot.runs.length,1);assert.deepEqual(b.boot.runs,[]);assert.equal(b.boot.targets,null);assert.equal(b.boot.configured.GITHUB_TOKEN,false);
