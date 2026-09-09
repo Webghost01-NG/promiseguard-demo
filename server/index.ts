@@ -108,7 +108,8 @@ export function createApp(path = 'data/promiseguard.sqlite', key?: Buffer, port 
           const input = await body(req);
           if (typeof input.name !== 'string' || input.name.length > 100 || typeof input.password !== 'string' || input.password.length > 256) return json(res,400,{error:'Invalid sign-up input.'});
           try {
-            const result = await accounts.register(req.socket.remoteAddress || 'unknown',input.name,input.password);
+            const forwarded = publicOrigin && typeof req.headers['x-forwarded-for'] === 'string' ? req.headers['x-forwarded-for'].split(',')[0].trim().slice(0,100) : '';
+            const result = await accounts.register(forwarded || req.socket.remoteAddress || 'unknown',input.name,input.password);
             accounts.logout(token);
             res.setHeader('Set-Cookie',`pg_session=${result.token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800${publicOrigin ? '; Secure' : ''}`);
             return json(res,201,{user:result.user});
