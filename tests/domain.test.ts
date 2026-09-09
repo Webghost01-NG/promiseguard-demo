@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { githubIssue, notionId, slackTarget, slackMessageUrl, validateTargets, validateAssessment, planActions, planHash, slackText, type Run, type Evidence } from '../server/domain.ts';
 import { Store } from '../server/store.ts';
 import { requiresReconciliation } from '../server/coordinator.ts';
+import { citationCatalog, groundCitationSelection, Providers } from '../server/providers.ts';
 
 // Explicit unit-test fixtures only. No fake provider is used by the application.
 const evidence: Evidence[] = [
@@ -44,6 +45,38 @@ test('citation verification tolerates presentation-only typography and whitespac
   const sources=[{...evidence[0],text:'Release - blocked'},evidence[1]];
   assert.deepEqual(validateAssessment(styled,sources),styled);
   assert.throws(()=>validateAssessment({...styled,citations:[{...styled.citations[0],quote:'Acceptance check has passed.'},styled.citations[1]]},sources));
+});
+test('Gemini citation selections resolve to exact bounded source passages', () => {
+  const sources: Evidence[] = [
+    { ...evidence[0], text: `  Customer promise — preserve punctuation.\n${'A'.repeat(750)} final sentence.` },
+    evidence[1],
+  ];
+  const catalog = citationCatalog(sources);
+  assert.ok(catalog.length >= 3);
+  assert.ok(catalog.every(candidate => candidate.quote.length <= 600 && sources.find(source => source.id === candidate.evidenceId)!.text.includes(candidate.quote)));
+  const selected = groundCitationSelection({ ...fixture().assessment, citations: [{ citationId: catalog[0].citationId }, { citationId: catalog.at(-1)!.citationId }] }, catalog) as {citations:{evidenceId:string;quote:string}[]};
+  assert.deepEqual(selected.citations, [{ evidenceId: catalog[0].evidenceId, quote: catalog[0].quote }, { evidenceId: catalog.at(-1)!.evidenceId, quote: catalog.at(-1)!.quote }]);
+  assert.throws(() => groundCitationSelection({ ...fixture().assessment, citations: [{ citationId: 'invented' }] }, catalog), /not in the evidence catalog/);
+});
+test('analysis asks Gemini for catalog IDs and returns server-owned source quotations', async () => {
+  const providers = new Providers(() => ({}));
+  let calls = 0;
+  providers.request = async (_provider, _path, _method, body) => {
+    calls++;
+    const prompt = JSON.parse((body as any).contents[0].parts[0].text);
+    const commitment = prompt.citationCatalog.find((candidate: any) => candidate.evidenceId === 'notion:commitment');
+    const engineering = prompt.citationCatalog.find((candidate: any) => candidate.evidenceId === 'github:issue');
+    assert.ok(commitment?.citationId && engineering?.citationId);
+    assert.deepEqual((body as any).generationConfig.responseSchema.properties.citations.items.properties.citationId.enum, prompt.citationCatalog.map((candidate: any) => candidate.citationId));
+    return { candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify({
+      decision: 'repair', summary: 'The acceptance gate remains blocked.', blocker: 'Acceptance check is failing.', nextAction: 'Investigate the acceptance check.',
+      citations: [{ citationId: commitment.citationId }, { citationId: engineering.citationId }],
+    }) }] } }] };
+  };
+  const run = fixture();
+  const result = await providers.analyze(run.snapshot!, run.targets);
+  assert.equal(calls, 1);
+  assert.deepEqual(result.citations, evidence.map(source => ({ evidenceId: source.id, quote: source.text })));
 });
 test('repair requires evidence from both the commitment and engineering issue', () => {
   const assessment = fixture().assessment!;
