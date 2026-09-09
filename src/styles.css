@@ -392,6 +392,8 @@ footer { display: flex; align-items: center; gap: 25px; justify-content: space-b
 .auth-divider::before, .auth-divider::after { content: ''; height: 1px; background: var(--line); flex: 1; }
 .auth-divider + form { margin-top: 0; }
 .auth-switch { width: 100%; border: 0; background: transparent; color: var(--muted); margin-top: 16px; padding: 6px; font-size: 11px; text-decoration: underline; cursor: pointer; }
+.auth-legal { margin: 22px auto 0; max-width: 390px; text-align: center; font-size: 10px; color: var(--muted); }
+.auth-legal a { text-decoration: underline; text-underline-offset: 3px; }
 .connection-buttons { display: flex; gap: 16px; align-items: center; margin-top: 12px; }
 .workspace-identity > div { max-width: 140px; overflow-wrap: anywhere; }
 @media (max-width: 850px) {
