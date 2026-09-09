@@ -1,37 +1,33 @@
-# Verification status — 9 September 2026
+# Verification status — 10 September 2026
 
-## Current checks
+This page separates repeatable checks from live observations and pending external work. See the [architecture and reliability brief](reliability.md) for trust boundaries, execution state, and failure behavior.
 
-- **33 local tests pass.** Coverage includes bounded targets, source quotations, approval-plan identity, SQLite recovery, unknown-write classification, Slack timestamp precision, parent-thread query handling, mismatched channels, malformed copied links, and exact-origin public runtime checks.
-- **TypeScript and production build pass.** Production dependency audit reports no known vulnerabilities.
-- **Optional integration UI:** all four combinations passed at 1440, 768, 390 and 320 pixels (16 checks), without browser errors or horizontal overflow.
-- **Earlier UI checks:** 35 viewport checks passed during the redesign. The Slack fix additionally passed browser checks at 1440, 768, 390, and 320 pixels, including actionable errors, conversion to a readable message link, and clearing an outdated success indicator after editing. No browser errors or horizontal overflow were observed.
-- **Live Slack validation:** the saved failed timestamp was rejected with `thread_not_found`; the original demo discussion was readable. Its two-microsecond timestamp difference identifies a different message, not rounding performed by the parser. The application never guesses a nearby message.
-- **Pre-analysis failure:** an actual invalid Slack thread returned HTTP 400 without starting Gemini, adding a run, or replacing saved targets.
-- **Live read-back:** all three external records belonging to the saved completed demonstration were independently read and matched the recorded GitHub, Notion, and Slack actions during this fix. No additional repair writes were sent.
-- **Initial security checks:** cross-origin and missing-session mutations were rejected, `.env` was not served, and credentials were absent from source and frontend output. Private runtime data and credentials remain Git-ignored.
-- **Setup script:** invocation without `--apply` was rejected before any external action. The public script now requires explicit repository, page, channel, and owner arguments instead of hardcoded private-workspace destinations.
+## Repeatable checks
 
-## Account isolation checks
+- `npm test`: 47 passed; the credential-gated Turso persistence test skipped.
+- Turso credentials exported + `npm test`: 48/48 passed. Local fixtures stayed in local SQLite; the one remote test used random IDs, closed and reopened the database, verified encrypted credentials and owner-scoped state, then deleted its records.
+- `npm run build`: TypeScript and the Vite production build passed.
+- `npm audit --omit=dev`: zero known production dependency vulnerabilities.
+- Real Gemini evaluation: 22/24 decisions correct (91.7%), above the 75% gate, with zero API/validation errors. Repair 8/8, no-change 8/8, clarify 6/8.
+- Responsive interface checks previously passed at 1440, 768, 390, and 320 pixels without horizontal overflow or browser console errors.
 
-Local tests verify password hashing, session expiry/revocation, sign-in rate limits, owner-scoped reads/settings/writes, cross-user approval rejection, authenticated HTTP entry points, CSRF, encrypted token ownership and an explicit one-time legacy import. A missing credential key fails closed. Legacy run payloads remain unchanged during ownership assignment. Terminal provisioning is exercised against a temporary database.
+## Live production observations
 
-Real browser sign-in/out and separate-account token storage passed against a temporary local test server. Sign-in, workspace and connections passed at 1440, 768, 390 and 320 pixels (12 checks), without page errors or horizontal overflow. No external provider calls were made for these account tests.
+- `https://promiseguard-7yoq.onrender.com/` and `/api/health` returned HTTP 200.
+- Responses included Content Security Policy, one-year HSTS, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, and `X-Content-Type-Options: nosniff`.
+- Render reports one non-suspended Node web service on the free plan. Turso stores durable accounts, encrypted grants, settings, sessions, and run history across deploys.
+- `/api/auth/providers` reports Google, GitHub, and Slack enabled. Each sign-in start endpoint returned a provider authorization URL with PKCE and its exact production HTTPS callback.
+- A prior completed synthetic demonstration was independently read back from GitHub, Notion, and Slack without sending another repair.
 
-These checks use synthetic local accounts and SQLite fixtures. They do not constitute a public-hosting security audit or provider OAuth verification. Provider tokens remain manually connected until OAuth is implemented.
+## Audit correction
 
-The deployment test verifies an exact HTTPS host/origin, HSTS, Secure cookies, public health checks, cross-origin rejection and nested persistent-data paths. The Render Blueprint itself has not been deployed from this environment because no Render account or API credential is connected.
+During the Turso audit, local fixtures initially inherited the exported production database variables. The run was stopped, six exact synthetic test identities and their related rows were removed, and the cleanup query found zero matching test names or identities. [PR #41](https://github.com/Webghost01-NG/promiseguard-demo/pull/41) now pins local fixtures to SQLite and permits only the randomized, self-cleaning durability test to use Turso. A full Turso-enabled run then passed 48/48.
 
-## Demonstration provenance
+## Pending evidence
 
-Dedicated synthetic issue, Notion paragraphs, and Slack discussion were created with the participant’s authorization. Their identities are retained privately in `data/demo-records.json`. A real Gemini assessment reached review; a later saved run completed, and the external results have now passed read-back verification. This is a synthetic scenario executed against real providers, not evidence of real customer impact.
+- Google Safe Browsing false-positive review: [issue #31](https://github.com/Webghost01-NG/promiseguard-demo/issues/31).
+- Judge-ready three-app receipt: [issue #35](https://github.com/Webghost01-NG/promiseguard-demo/issues/35).
+- Controlled duplicate-safe recovery demonstration: [issue #36](https://github.com/Webghost01-NG/promiseguard-demo/issues/36).
+- Two-minute submission package: [issue #37](https://github.com/Webghost01-NG/promiseguard-demo/issues/37).
 
-The latest failed analysis is retained as history. Its GitHub target differs from the original demo issue, so the fix does not silently replace it with demo targets. Select the intended discussion and use **Check Slack thread** before starting another analysis.
-
-## Remaining work and limits
-
-Actual interrupted-repair recovery has not yet been exercised against live providers. Local recovery tests are not a substitute for that test. Broader model decision quality remains unmeasured.
-
-GitHub-only mode and optional Notion/Slack are implemented. Live GitHub-only collection succeeded with Notion and Slack credentials absent; only GitHub requests were made. The completed legacy plan retained its approval hash. Local tests cover all four destination combinations and one-action recovery. No new live repair writes were performed for this feature. Other limits include one local server process, bounded pagination, flat Notion pages, and best-effort stale-write prevention. Unknown external outcomes can require manual investigation. Publishing this source does not deploy or expose the local server.
-
-See [UI design review](ui-design-review.md) for the interface reference review and design decisions.
+Synthetic GitHub issues [#1](https://github.com/Webghost01-NG/promiseguard-demo/issues/1) and [#22](https://github.com/Webghost01-NG/promiseguard-demo/issues/22) are demo records, not unresolved product defects.
