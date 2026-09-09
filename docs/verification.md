@@ -19,6 +19,8 @@ This page separates repeatable checks from live observations and pending externa
 - `/api/auth/providers` reports Google, GitHub, and Slack enabled. Each sign-in start endpoint returned a provider authorization URL with PKCE and its exact production HTTPS callback.
 - A prior completed synthetic demonstration was independently read back from GitHub, Notion, and Slack without sending another repair.
 - Controlled GitHub recovery discarded an accepted comment ID, found exactly one matching provider record, and independently verified [comment 5610265017](https://github.com/Webghost01-NG/promiseguard-demo/issues/1#issuecomment-5610265017).
+- The current deployment serves the PromiseGuard favicon as `image/svg+xml`. An authenticated probe confirmed GitHub, Notion, and Slack workflow authorization starts include a client ID and the exact production callback; the probe did not complete or modify provider access.
+- Anonymous `/api/bootstrap` returned 401, and a registration request from a foreign origin returned 403.
 
 ## Audit correction
 
@@ -31,3 +33,5 @@ During the Turso audit, local fixtures initially inherited the exported producti
 - Two-minute submission package: [issue #37](https://github.com/Webghost01-NG/promiseguard-demo/issues/37).
 
 Synthetic GitHub issues [#1](https://github.com/Webghost01-NG/promiseguard-demo/issues/1) and [#22](https://github.com/Webghost01-NG/promiseguard-demo/issues/22) are demo records, not unresolved product defects.
+
+The complete findings and remaining release procedure are in the [production audit](production-audit.md).
